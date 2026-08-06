@@ -6,9 +6,9 @@
 
 # Why This Project Exists
 
-This project was inspired by a real operational problem experienced by our family-owned barbershop and salon.
+This project was inspired by the operational challenges experienced at **Yab's Hair and Beauty Studio**, a family-owned barbershop and salon.
 
-Daily sales were recorded in handwritten logbooks, commissions were computed manually using calculators, and end-of-day reconciliation often took significant time while remaining prone to human error.
+The business currently relies on handwritten logbooks and manual commission calculations to manage daily operations. Observing these workflows firsthand motivated the development of a digital management system that addresses real operational needs rather than hypothetical problems.
 
 Rather than immediately writing code, I wanted to first understand the business, identify its operational challenges, and design a software solution around actual user needs.
 
