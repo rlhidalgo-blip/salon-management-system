@@ -116,7 +116,7 @@ The owner has limited access to historical sales information, making it difficul
 
 ### Lack of Centralized Records
 
-Business information is stored in physical logbooks, making long-term recordkeeping and reporting inefficient.
+Business information is stored in physical logbooks,, making long-term recordkeeping and reporting inefficient.
 
 ## Business Objectives
 
