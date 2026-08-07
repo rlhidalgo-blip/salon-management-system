@@ -157,9 +157,13 @@ The following rules define how Yab's Hair and Beauty Studio currently operates.
 
 ### Sales Recording
 
-- Sales are recorded only after payment has been received.
-- Saved sales cannot be edited.
-- Each sale item is assigned to only one barber or stylist.
+- Sales shall only be recorded after payment has been received.
+- Every transaction shall automatically record its date and time.
+- Saved sales shall not be editable or deletable by the cashier.
+- Each sale item shall be assigned to only one barber or stylist.
+- A customer transaction may contain multiple services and/or products.
+- Each transaction shall record the payment method used.
+- Supported payment methods for the MVP shall be Cash and GCash.
 
 ### Pricing
 
@@ -189,6 +193,15 @@ Historical sales must preserve:
 - Commission amount
 
 Changes to commission rules must not affect previous sales.
+
+### Payment
+
+- Every transaction shall have a payment method.
+- The supported payment methods for the MVP shall be Cash and GCash.
+- Cash transactions shall not require a payment reference number.
+- GCash transactions shall require a reference number before the transaction can be saved.
+- The GCash reference number shall be stored with the transaction for recordkeeping and reconciliation purposes.
+- The GCash reference number shall not by itself be treated as proof that payment was successfully received.
 
 ## 9. Functional Requirements
 
