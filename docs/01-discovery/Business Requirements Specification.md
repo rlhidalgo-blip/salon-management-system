@@ -463,9 +463,9 @@ Potential enhancements include:
 
 ## Version History
 
-| Version | Date | Author | Description |
-|----------|------|---------|-------------|
-| 1.0 | August 7, 2026 | Rafael Hidalgo | Initial Business Requirements Specification |
+| Version | Date           | Author         | Description |
+| ------- | -------------- | -------------- | ----------- |
+| 1.0     | August 8, 2026 | Rafael Hidalgo | Initial validated Business Requirements Specification |
 
 ## Decision Log
 
