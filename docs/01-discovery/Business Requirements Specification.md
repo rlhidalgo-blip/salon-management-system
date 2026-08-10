@@ -24,7 +24,7 @@ The document serves as the foundation for understanding how the business current
 
 This document focuses exclusively on the business requirements of the system.
 
-It describes the current business workflow, identifies operational pain points, defines business rules, and establishes the requirements needed to improve salon operations through software.
+It describes the current business workflow, identifies operational pain points, defines business rules, and establishes the requirements needed to improve salon operations, through software.
 
 Technical implementation details such as programming languages, databases, APIs, and user interface design are intentionally excluded and will be documented separately during later phases of the project.
 
