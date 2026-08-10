@@ -6,11 +6,11 @@
 |--------|-------|
 | Project | Salon Management System |
 | Document | Business Requirements Specification |
-| Version | 1.0 |
+| Version | 1.1 |
 | Status | Validated |
 | Author | Rafael Hidalgo |
 | Date Created | August 7, 2026 |
-| Last Updated | August 7, 2026 |
+| Last Updated | August 11, 2026 |
 
 ## Introduction
 
@@ -183,7 +183,14 @@ The following rules define how Yab's Hair and Beauty Studio currently operates.
 
 - Sales shall only be recorded after payment has been received.
 - Every transaction shall automatically record its date and time.
-- Saved sales shall not be editable or deletable by the cashier.
+- Completed transactions shall not be directly editable or permanently deletable.
+- The Cashier shall not be permitted to void completed transactions.
+- The Owner may void an incorrect completed transaction.
+- A reason shall be required when voiding a transaction.
+- Voided transactions shall remain preserved as historical records.
+- Voided transactions shall not contribute to active financial totals or commission calculations.
+- Corrected information shall be recorded through a new transaction when necessary.
+
 - Each service sale item shall be assigned to exactly one barber or stylist.
 - A product sale item may optionally be assigned to one barber or stylist.
 - If a product sale is assigned to a staff member, the applicable product commission shall be awarded to that staff member.
@@ -359,6 +366,10 @@ The following functional requirements define the core capabilities required by t
 
 **FR-036** The system shall ensure that the sum of Staff Commission and Business Share equals the Gross Sales recorded for the selected reporting period.
 
+**FR-037** The system shall allow the Owner to void an incorrect completed transaction while preserving the original transaction record, void reason, responsible user, and void timestamp.
+
+**FR-038** The system shall exclude voided transactions from active sales, payment, commission, and Business Share calculations.
+
 ## Reporting Information Requirements
 
 Daily and monthly reports shall provide the business with the following categories of information:
@@ -466,6 +477,7 @@ Potential enhancements include:
 | Version | Date           | Author         | Description |
 | ------- | -------------- | -------------- | ----------- |
 | 1.0     | August 8, 2026 | Rafael Hidalgo | Initial validated Business Requirements Specification |
+| 1.1     | August 11,2026 | Rafael Hidalgo | Added Owner-controlled transaction voiding and historical correction requirements |
 
 ## Decision Log
 
@@ -482,3 +494,6 @@ Potential enhancements include:
 | D-009 | Reports shall separate Cash and GCash totals | Allows the owner to reconcile recorded sales against actual payment channels |
 | D-010 | Reports shall separate staff commissions and business share | Allows the owner to understand how gross sales are distributed |
 | D-011 | The term "Business Share" shall be used instead of "Profit" | Commission deductions alone do not account for all business expenses |
+| D-012 | Incorrect completed transactions shall be voided rather than edited or permanently deleted | Preserves financial history while allowing the Owner to correct recording errors |
+
+
