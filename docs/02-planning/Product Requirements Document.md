@@ -7,11 +7,11 @@
 | Project | Salon Management System |
 | Client | Yab's Hair and Beauty Studio |
 | Document | Product Requirements Document |
-| Version | 1.0 |
+| Version | 1.1 |
 | Status | Validated |
 | Author | Rafael Hidalgo |
 | Date Created | August 9, 2026 |
-| Last Updated | August 10, 2026 |
+| Last Updated | August 11, 2026 |
 
 ## Executive Summary
 
@@ -182,6 +182,9 @@ The capability will support:
 - Supporting fixed and variable selling prices
 - Automatically recording transaction date and time
 - Preserving completed transaction records
+- Supporting Owner-controlled voiding of incorrect completed transactions
+- Preserving voided transactions for historical traceability
+- Excluding voided transactions from active financial calculations
 
 Transaction Management serves as the primary source of operational data used by commission calculation, payment tracking, and reporting.
 
@@ -254,9 +257,10 @@ The MVP will support:
 - Role-based access restrictions
 - Protection of business and financial information
 
-The Owner will have access to administrative capabilities such as managing staff, services, products, prices, and commission rules.
+The Owner will have access to administrative capabilities such as managing staff, services, products, prices, and commission rules. Can Void incorrect completed transactions.
 
 The Cashier will primarily have access to transaction-recording and applicable reporting capabilities.
+The Cashier shall not be permitted to void, edit, or permanently delete completed transactions.
 
 Authentication protects access to business and financial information but is considered a supporting capability rather than the primary source of product value.
 
@@ -463,6 +467,14 @@ Changes to administrative configuration must not alter historical transaction re
 - Historical transactions can be retrieved for reporting.
 - Core financial calculations pass defined test cases.
 - No known critical defects remain that could cause incorrect sales, payment, commission, or Business Share records.
+- Completed transactions cannot be directly edited or permanently deleted.
+- The Cashier cannot void completed transactions.
+- The Owner can void an incorrect completed transaction.
+- A void reason is required.
+- The original transaction remains preserved after voiding.
+- The system records who voided the transaction and when it was voided.
+- Voided transactions do not contribute to active sales, payment totals, Staff Commission, or Business Share.
+- Corrected information is recorded through a new transaction when necessary.
 
 ### User Validation
 
@@ -485,6 +497,7 @@ Before full operational adoption:
 | Version | Date | Author | Description |
 |---|---|---|---|
 | 1.0 | August 10, 2026 | Rafael Hidalgo | Initial Validated Product Requirements Document |
+| 1.1 | August 11, 2026 | Rafael Hidalgo | Added Owner-controlled transaction voiding and role-based correction workflow |
 
 ## Decision Log
 
@@ -500,3 +513,4 @@ Before full operational adoption:
 | PD-008 | Detailed business and functional requirements shall remain in the BRS rather than being duplicated in the PRD | This reduces documentation duplication while maintaining traceability between business requirements and product decisions. |
 | PD-009 | Detailed user-level requirements and acceptance criteria shall be maintained in the User Stories document | Separating user stories from the PRD keeps the PRD focused on product direction, capabilities, priorities, and success criteria. |
 | PD-010 | The MVP shall be validated by the actual Owner and Cashier before full operational adoption | The product must be usable in the real business workflow, not merely technically complete. |
+| PD-011 | Incorrect completed transactions shall use an Owner-controlled void workflow rather than direct editing or deletion | Preserves financial traceability while allowing genuine recording errors to be corrected |
