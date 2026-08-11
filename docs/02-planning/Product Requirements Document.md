@@ -257,10 +257,13 @@ The MVP will support:
 - Role-based access restrictions
 - Protection of business and financial information
 
-The Owner will have access to administrative capabilities such as managing staff, services, products, prices, and commission rules. Can Void incorrect completed transactions.
+The Owner will have access to administrative capabilities such as managing staff, services, products, prices, and commission rules.
+
+The Owner shall also have permission to void incorrect completed transactions.
+
+The Cashier shall not be permitted to void, directly edit, or permanently delete completed transactions.
 
 The Cashier will primarily have access to transaction-recording and applicable reporting capabilities.
-The Cashier shall not be permitted to void, edit, or permanently delete completed transactions.
 
 Authentication protects access to business and financial information but is considered a supporting capability rather than the primary source of product value.
 
@@ -379,10 +382,6 @@ This separation is intended to maintain traceability while avoiding unnecessary 
 
 The following risks may affect the reliability, adoption, or effectiveness of the Salon Management System.
 
-## Risks and Mitigations
-
-The following risks may affect the reliability, adoption, or effectiveness of the Salon Management System.
-
 | ID | Priority | Risk | Potential Impact | Mitigation |
 |---|---|---|---|---|
 | R-001 | Medium | Internet unavailability | The cashier may be temporarily unable to record transactions or access the system during business operations. | Ensure the existing manual process can temporarily serve as a fallback during outages. Offline capabilities may be evaluated in a future release if outages become a significant operational issue. |
@@ -404,7 +403,14 @@ The MVP will be considered ready for initial deployment at Yab's Hair and Beauty
 - Variable service prices can be entered when applicable.
 - The system automatically records the transaction date and time.
 - Completed transactions are preserved after submission.
-- The Cashier cannot edit or delete a completed transaction after submission.
+- Completed transactions cannot be directly edited or permanently deleted.
+- The Cashier cannot void completed transactions.
+- The Owner can void an incorrect completed transaction.
+- A void reason is required.
+- The original transaction remains preserved after voiding.
+- The system records who voided the transaction and when it was voided.
+- Voided transactions do not contribute to active sales, payment totals, Staff Commission, or Business Share.
+- Corrected information is recorded through a new transaction when necessary.
 
 ### Commission Calculation
 
@@ -467,14 +473,6 @@ Changes to administrative configuration must not alter historical transaction re
 - Historical transactions can be retrieved for reporting.
 - Core financial calculations pass defined test cases.
 - No known critical defects remain that could cause incorrect sales, payment, commission, or Business Share records.
-- Completed transactions cannot be directly edited or permanently deleted.
-- The Cashier cannot void completed transactions.
-- The Owner can void an incorrect completed transaction.
-- A void reason is required.
-- The original transaction remains preserved after voiding.
-- The system records who voided the transaction and when it was voided.
-- Voided transactions do not contribute to active sales, payment totals, Staff Commission, or Business Share.
-- Corrected information is recorded through a new transaction when necessary.
 
 ### User Validation
 
