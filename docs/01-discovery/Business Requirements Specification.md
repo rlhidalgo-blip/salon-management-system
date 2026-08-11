@@ -24,7 +24,7 @@ The document serves as the foundation for understanding how the business current
 
 This document focuses exclusively on the business requirements of the system.
 
-It describes the current business workflow, identifies operational pain points, defines business rules, and establishes the requirements needed to improve salon operations, through software.
+It describes the current business workflow, identifies operational pain points, defines business rules, and establishes the requirements needed to improve salon operations through software.
 
 Technical implementation details such as programming languages, databases, APIs, and user interface design are intentionally excluded and will be documented separately during later phases of the project.
 
@@ -116,7 +116,7 @@ The owner has limited access to historical sales information, making it difficul
 
 ### Lack of Centralized Records
 
-Business information is stored in physical logbooks,, making long-term recordkeeping and reporting inefficient.
+Business information is stored in physical logbooks, making long-term recordkeeping and reporting inefficient.
 
 ## Business Objectives
 
@@ -256,8 +256,12 @@ Historical transaction records shall include:
 - Commission rate or fixed commission value
 - Staff commission amount
 - Business share
+- Transaction status
+- Void reason, when applicable
+- Voided by, when applicable
+- Void date and time, when applicable
 
-Changes to prices, services, products, or commission rules shall not alter previously recorded transactions.
+Changes to prices, services, products, or commission rules shall not alter previously recorded transactions.transactions.
 
 ### Payment
 
@@ -477,14 +481,14 @@ Potential enhancements include:
 | Version | Date           | Author         | Description |
 | ------- | -------------- | -------------- | ----------- |
 | 1.0     | August 8, 2026 | Rafael Hidalgo | Initial validated Business Requirements Specification |
-| 1.1     | August 11,2026 | Rafael Hidalgo | Added Owner-controlled transaction voiding and historical correction requirements |
+| 1.1     | August 11, 2026 | Rafael Hidalgo | Added Owner-controlled transaction voiding and historical correction requirements |
 
 ## Decision Log
 
 | ID | Decision | Rationale |
 |---|---|---|
 | D-001 | Build the system as a web application | Allows the system to be accessed through a browser without requiring installation on individual devices |
-| D-002 | Saved sales shall not be editable or deletable by the cashier | Protects the integrity of financial records |
+| D-002 | Completed transactions shall not be directly edited or permanently deleted | Protects financial data integrity and preserves historical transaction records |
 | D-003 | Historical commission values shall remain unchanged | Ensures historical financial records remain accurate when commission rules change |
 | D-004 | Service sale items require one assigned barber or stylist, while product sale items may have optional staff assignment | Services require staff attribution for commission calculation, while products may be purchased without being sold by a specific staff member |
 | D-005 | The MVP shall support Owner and Cashier as system users | These are the only roles that currently require direct system access |
