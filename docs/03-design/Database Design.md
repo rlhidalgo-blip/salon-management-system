@@ -8,10 +8,10 @@
 | Client | Yab's Hair and Beauty Studio |
 | Document | Database Design |
 | Version | 1.0 |
-| Status | Draft |
+| Status | Validated |
 | Author | Rafael Hidalgo |
 | Date Created | August 19, 2026 |
-| Last Updated | August 19, 2026 |
+| Last Updated | August 25, 2026 |
 
 ## Purpose
 
@@ -503,7 +503,7 @@ The identifier strategy applies to:
 | Column | PostgreSQL Type | Nullability | Constraint / Default |
 |---|---|---|---|
 | `id` | `INTEGER` | NOT NULL | Primary Key, automatically generated |
-| `date_time` | `TIMESTAMPTZ` | NOT NULL | Automatically records transaction time |
+| `date_time` | `TIMESTAMPTZ` | NOT NULL | Default to current transaction timestamp |
 | `payment_method` | `TEXT` | NOT NULL | Must be `Cash` or `GCash` |
 | `gcash_reference` | `TEXT` | Conditional | Required for GCash; must be empty for Cash |
 | `status` | `TEXT` | NOT NULL | Must be `Completed` or `Voided`; default `Completed` |
@@ -526,3 +526,114 @@ The identifier strategy applies to:
 | `commission_value_snapshot` | `NUMERIC(12,2)` | Conditional | Must be greater than 0 when commission applies |
 | `staff_commission` | `NUMERIC(12,2)` | NOT NULL | Must be greater than or equal to 0 |
 | `business_share` | `NUMERIC(12,2)` | NOT NULL | Must be greater than or equal to 0 |
+
+### Foreign-Key Deletion Strategy
+
+Foreign-key relationships in the MVP shall use restrictive deletion behavior where deletion could break current configuration or historical financial records.
+
+Referenced records should generally be made inactive rather than permanently deleted.
+
+| Foreign Key | Deletion Behavior | Rationale |
+|---|---|---|
+| `services.commission_rule_id` | `RESTRICT` | Prevent Services from losing their configured Commission Rule |
+| `products.commission_rule_id` | `RESTRICT` | Prevent Products from losing their configured Commission Rule |
+| `transactions.voided_by_user_id` | `RESTRICT` | Preserve the identity of the User who performed a historical void |
+| `transaction_items.transaction_id` | `RESTRICT` | Prevent deletion from breaking historical Transaction records |
+| `transaction_items.service_id` | `RESTRICT` | Preserve historical Service relationships |
+| `transaction_items.product_id` | `RESTRICT` | Preserve historical Product relationships |
+| `transaction_items.staff_id` | `RESTRICT` | Preserve historical Staff relationships |
+
+Destructive cascading deletion shall not be used for historical financial relationships.
+
+Staff, Services, Products, Commission Rules, and User accounts should be made inactive when they are no longer available for current operation rather than deleted when referenced records depend on them.
+
+### Physical Constraint Strategy
+
+PostgreSQL constraints shall provide database-level protection for structural and financial invariants that must remain true regardless of application behavior.
+
+Key physical constraints include:
+
+#### Transaction Items
+
+- Exactly one of `service_id` or `product_id` must contain a value.
+- A Service Transaction Item must contain `staff_id`.
+- `selling_price` must be greater than zero.
+- `staff_commission` must be greater than or equal to zero.
+- `business_share` must be greater than or equal to zero.
+- `staff_commission + business_share` must equal `selling_price`.
+
+#### Transactions
+
+- `payment_method` must be either `Cash` or `GCash`.
+- Cash Transactions must have no GCash reference.
+- GCash Transactions must contain a GCash reference.
+- `status` must be either `Completed` or `Voided`.
+- Completed Transactions must contain no void metadata.
+- Voided Transactions must contain a Void Reason, voiding User, and void timestamp.
+
+#### Commission Rules
+
+- `type` must be either `Percentage` or `Fixed`.
+- Commission `value` must be greater than zero.
+- Percentage commission values must not exceed 100.
+
+#### Users and Staff
+
+- User `role` must be either `Owner` or `Cashier`.
+- Staff `role` must be either `Barber` or `Stylist`.
+
+Application-level validation and authorization shall remain responsible for rules requiring additional business context, including:
+
+- Only active Staff may be assigned to new Transactions.
+- Only active Services and Products may be sold in new Transactions.
+- The appropriate Commission Rule must be applied to the selected Service or Product.
+- Product sales without assigned Staff must generate zero Staff Commission.
+- Only authenticated Owners may void completed Transactions.
+
+### Index Strategy
+
+Indexes shall be introduced where they support validated query and reporting patterns rather than being added to every database column.
+
+PostgreSQL automatically provides indexes for Primary Key and UNIQUE constraints.
+
+For the initial MVP:
+
+- Primary Key indexes will support record lookup and relationships.
+- The UNIQUE constraint on `users.username` will support unique account identification.
+- An index on `transactions.date_time` will support Daily, Monthly, and historical date-range reporting.
+
+Additional indexes should be introduced only when actual query patterns or performance testing demonstrate a need.
+
+### Physical Design Notes
+
+The MVP physical design intentionally avoids unnecessary complexity.
+
+The following decisions currently apply:
+
+- UUID identifiers are not required for the current single-business architecture.
+- A separate Payments table is not required because each MVP Transaction uses one payment method.
+- General-purpose audit logging is outside the current MVP scope.
+- General `created_at` and `updated_at` metadata is not required for configuration entities under the validated MVP requirements.
+- Staff-name snapshots are not required because historical reporting prioritizes preserved financial values and stable Staff relationships.
+- Report totals are derived from Transaction and Transaction Item data rather than independently stored as financial totals.
+
+## Version History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | August 24, 2026 | Rafael Hidalgo | Initial Database Design for the MVP |
+
+## Decision Log
+
+| ID | Decision | Rationale |
+|---|---|---|
+| DB-D-001 | Separate Services and Products into distinct entities | Their pricing, staff-assignment, and commission behavior differ |
+| DB-D-002 | Preserve historical financial values in Transaction Items | Current prices and commission rules must not rewrite completed sales |
+| DB-D-003 | Derive report totals from Transaction data | Prevents independently maintained financial totals from becoming inconsistent |
+| DB-D-004 | Keep payment information within Transactions for the MVP | Each MVP Transaction uses one payment method; split payments are outside scope |
+| DB-D-005 | Use automatically generated integer primary keys | Appropriate for the expected scale and single-business architecture |
+| DB-D-006 | Use `NUMERIC(12,2)` for financial values | Provides exact decimal representation for monetary calculations |
+| DB-D-007 | Use restrictive foreign-key deletion behavior for protected relationships | Prevents deletion from damaging historical financial records |
+| DB-D-008 | Divide integrity enforcement between PostgreSQL constraints and backend validation | Structural and financial invariants belong in the database while contextual business rules require application logic |
+| DB-D-009 | Keep the initial index strategy minimal | Indexes should support validated query patterns and expand based on observed performance needs |
+| DB-D-010 | Do not preserve Staff name snapshots in Transaction Items | Stable Staff references are sufficient while historical reporting prioritizes financial values |
