@@ -7,8 +7,8 @@
 | Project | Salon Management System |
 | Client | Yab's Hair and Beauty Studio |
 | Document | Database Design |
-| Version | 1.0 |
-| Status | Validated |
+| Version | 1.1 |
+| Status | Development baseline — implementation pending |
 | Author | Rafael Hidalgo |
 | Date Created | August 19, 2026 |
 | Last Updated | August 25, 2026 |
@@ -292,7 +292,7 @@ Some rules may be enforced directly through database constraints, while others r
 
 ### Referential and Historical Integrity
 
-- Foreign-key relationships shall reference existing records.
+#NAME?
 - Historical Transaction Items shall remain preserved when related Staff, Services, Products, or Commission Rules are later changed or made inactive.
 - Staff, Services, and Products referenced by historical Transaction Items shall not be destructively removed in a way that breaks historical relationships.
 - Destructive cascading deletion shall not be used where it could remove historical financial records.
@@ -306,9 +306,9 @@ The database shall distinguish between current business configuration and histor
 
 The following entities represent information that may change as the business operates:
 
-- Staff
-- Services
-- Products
+#NAME?
+#NAME?
+#NAME?
 - Commission Rules
 
 Changes to these entities affect future business operations but shall not rewrite completed Transactions.
@@ -363,8 +363,8 @@ The following report values can be derived from active Transactions and their Tr
 - GCash Sales
 - Total Staff Commission
 - Total Business Share
-- Staff-level Sales
-- Staff-level Commission
+#NAME?
+#NAME?
 - Transaction counts
 
 For example:
@@ -440,12 +440,12 @@ This approach provides simple and stable record identifiers while remaining appr
 
 The identifier strategy applies to:
 
-- Users
-- Staff
+#NAME?
+#NAME?
 - Commission Rules
-- Services
-- Products
-- Transactions
+#NAME?
+#NAME?
+#NAME?
 - Transaction Items
 
 ### Staff — Physical Design
@@ -612,9 +612,9 @@ The following decisions currently apply:
 
 - UUID identifiers are not required for the current single-business architecture.
 - A separate Payments table is not required because each MVP Transaction uses one payment method.
-- General-purpose audit logging is outside the current MVP scope.
+#NAME?
 - General `created_at` and `updated_at` metadata is not required for configuration entities under the validated MVP requirements.
-- Staff-name snapshots are not required because historical reporting prioritizes preserved financial values and stable Staff relationships.
+#NAME?
 - Report totals are derived from Transaction and Transaction Item data rather than independently stored as financial totals.
 
 ## Version History
@@ -637,3 +637,92 @@ The following decisions currently apply:
 | DB-D-008 | Divide integrity enforcement between PostgreSQL constraints and backend validation | Structural and financial invariants belong in the database while contextual business rules require application logic |
 | DB-D-009 | Keep the initial index strategy minimal | Indexes should support validated query patterns and expand based on observed performance needs |
 | DB-D-010 | Do not preserve Staff name snapshots in Transaction Items | Stable Staff references are sufficient while historical reporting prioritizes financial values |
+
+---
+
+# Version 1.1 Addendum — Approved Architecture Reconciliation
+
+> **Status:** Development-ready design baseline, not an implemented database. This addendum supersedes conflicting v1.0 descriptions. Existing v1.0 entities and financial invariants remain in force unless explicitly changed here. The physical schema and migrations must reflect the combined design, not the original v1.0 tables alone.
+
+## A. Calendar-day cashier access (ADR-020)
+
+- The salon uses a single shared business date determined in `Asia/Manila`, midnight to midnight. No `shifts` table or clock-in/clock-out workflow is required for the MVP.
+- Owner can view historical and current transactions. Cashier can view all transactions with `business_date` equal to the *current* Manila date, including transactions entered by other cashiers. Backend enforces this filter on list and detail endpoints.
+- Add `transactions.business_date DATE NOT NULL`, derived from the validated occurrence timestamp in `Asia/Manila`; index it for reporting and cashier lookups.
+- A back-entered transaction remains assigned to its original business date, not its system entry date.
+
+## B. Direct and manual sales (ADR-021)
+
+- Owner and Cashier may enter direct sales and paper-recorded **same-day** sales. Only Owner may back-enter **previous-day** sales and reconcile historical paper records. Future-dated sales are prohibited.
+- Preserve the original `transactions.date_time TIMESTAMPTZ` as **sale occurrence time**. For direct sales the server sets it; for manual entry an authorized user supplies the original time, validated by FastAPI.
+- Add `transactions.created_at TIMESTAMPTZ NOT NULL` (server-recorded entry time), `recorded_by_user_id INTEGER NOT NULL REFERENCES users(id)`, `entry_source TEXT NOT NULL` constrained to `Direct` or `Manual`, and `manual_reference TEXT NULL` (required for `Manual`, absent for `Direct`).
+- Manual references are unique across the salon's manual logbook (unique partial index where non-null); staff must use a consistent reference format. This is a practical implementation convention, revisable if multiple independent logbooks are introduced.
+- Historical selling prices and commission snapshots must reflect the *actual sale*, not today's catalog. For historical entries, the Owner must verify the applicable commission policy and original price against paper records; if not verifiable, flag for review rather than inventing figures.
+- Reconciliation is an Owner-controlled procedure comparing paper logs/payment records to encoded sales. A dedicated reconciliation table/workflow is **deferred**; audit event and manual reference provide traceability. Do not silently alter completed sales; use Owner void plus corrected replacement transaction.
+
+## C. Server-managed sessions (ADR-022)
+
+Add `auth_sessions`:
+
+| Column | PostgreSQL type | Rule |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `user_id` | INTEGER | Required FK → `users.id`, indexed, **not unique** |
+| `token_hash` | CHAR(64) | Required, unique SHA-256 digest of high-entropy random cookie token |
+| `created_at` | TIMESTAMPTZ | Required |
+| `last_activity_at` | TIMESTAMPTZ | Required |
+| `expires_at` | TIMESTAMPTZ | Required |
+| `revoked_at` | TIMESTAMPTZ | Nullable |
+
+One User has zero or many Sessions; simultaneous devices are allowed. Logout revokes only the current session; account deactivation blocks all sessions. Validate current role/status on protected requests. Eight-hour inactivity expiry, secure HttpOnly production cookie, CSRF defenses and eventual expired-session cleanup apply. The raw token is never persisted or logged. Account-wide logout can be added as a simple administrative action during implementation.
+
+## D. Scoped audit events (MVP implementation of security requirements)
+
+To reconcile the v1.0 exclusion of *general-purpose* audit logging with the approved security architecture, add a **narrow** `audit_events` table, not a comprehensive change-history platform:
+
+| Column | PostgreSQL type | Rule |
+|---|---|---|
+| `id` | BIGINT GENERATED BY DEFAULT AS IDENTITY | Primary key |
+| `actor_user_id` | INTEGER | Nullable FK → users; nullable for failed unknown-user logins |
+| `event_type` | TEXT | Required, controlled event names |
+| `resource_type` | TEXT | Nullable |
+| `resource_id` | TEXT | Nullable |
+| `outcome` | TEXT | Required: `Success` or `Failure` |
+| `occurred_at` | TIMESTAMPTZ | Required, server assigned |
+| `metadata` | JSONB | Nullable, sanitized non-secret details |
+
+Record successful/failed login attempts, Owner voids and rejected void attempts, commission-rule changes, account/role changes, and historical manual back-entry/reconciliation actions. Void details already stored in Transactions remain authoritative. Do not log passwords, raw session tokens, payment secrets, or unnecessary personal data. Restrict edits/deletes and define retention during deployment; event writing must not accidentally commit an incomplete financial workflow.
+
+## E. Sale idempotency (ADR-017)
+
+Add `sale_idempotency` for backend-enforced duplicate prevention:
+
+| Column | PostgreSQL type | Rule |
+|---|---|---|
+| `id` | BIGINT GENERATED BY DEFAULT AS IDENTITY | Primary key |
+| `user_id` | INTEGER | Required FK → users |
+| `idempotency_key` | TEXT | Required |
+| `request_hash` | CHAR(64) | Required canonical request fingerprint |
+| `transaction_id` | INTEGER | Nullable FK → transactions |
+| `created_at` | TIMESTAMPTZ | Required |
+
+Unique `(user_id, idempotency_key)`. On retry with identical request, return the original committed transaction; reject same key with different request content. Enforce uniqueness and concurrent-request safety within one coordinated database transaction. A retention/cleanup policy for keys can be set during implementation, but must not permit accidental duplicates from expected retries.
+
+## F. Existing financial model preserved
+
+Keep the original seven entities: `users`, `staff`, `commission_rules`, `services`, `products`, `transactions`, `transaction_items`. Keep their PK/FK, constraints, and commission snapshot strategy. For transaction items: exactly one service/product, service staff required, product staff optional, `business_share = selling_price - staff_commission`, with decimal arithmetic. GCash requires reference; Cash forbids it. Voids require reason, Owner actor, timestamp; do not delete financial history. Reports exclude voids from active totals, and Cashiers retain the daily operational reports already specified in `MVP Scope.md` (including today's Cash/GCash totals and staff commissions), but not Owner-only monthly reports/Business Share.
+
+## G. Indexes and migration readiness
+
+- Preserve original primary-key, username uniqueness, and `transactions.date_time` index.
+- Add indexes on `transactions.business_date`, `transactions.recorded_by_user_id`, `auth_sessions.user_id`, `auth_sessions.token_hash` (unique), `audit_events.occurred_at`, and `sale_idempotency(user_id,idempotency_key)` (unique).
+- SQLAlchemy 2.x models map to the approved physical schema; Alembic migrations are reviewed before application. For an empty new database, create a coherent initial migration representing v1.1; don't treat v1.0 as a previously deployed production schema.
+- Use `NUMERIC` / Python Decimal for money and an explicit rounding policy. Validate all temporal conversions against `Asia/Manila`.
+
+## H. Implementation-time choices (do not block starting development)
+
+Decide exact HTTP endpoint shapes, audit retention, idempotency-key retention, manual logbook reference format, account-wide logout UI, and reconciliation UX during the relevant implementation tasks. Record decisions as they are made. No further architecture workshop is required to begin the MVP.
+
+## Version note
+
+**v1.1 (2026-10-14):** Consolidates ADR-020, ADR-021, ADR-022 and scoped audit/idempotency requirements with original v1.0 financial schema. Ready as the development baseline; constraints and migrations must be tested before real business use.
