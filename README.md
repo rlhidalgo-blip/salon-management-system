@@ -1,337 +1,158 @@
-# Salon Management System
+# Yab's Salon Management System
 
-> An internal web application designed to digitize salon operations by automating sales logging, commission calculation, and business reporting.
+> An internal web application for Yab's Hair and Beauty Studio, designed to digitize sales recording, staff commission calculations, and business reporting.
 
----
+## Why This Project Exists
 
-# Why This Project Exists
+Yab's Hair and Beauty Studio currently relies on handwritten logbooks and manual calculations to record daily sales and determine staff commissions. These workflows take time, are prone to human error, and make historical reporting and reconciliation difficult.
 
-This project was inspired by the operational challenges experienced at **Yab's Hair and Beauty Studio**, a family-owned barbershop and salon.
+This project starts from a real business problem. It also serves as a learning journey in product discovery, software engineering, and AI-assisted development: understanding the business first, then building and validating a maintainable product.
 
-The business currently relies on handwritten logbooks and manual commission calculations to manage daily operations. Observing these workflows firsthand motivated the development of a digital management system that addresses real operational needs rather than hypothetical problems.
+## Product Overview
 
-Rather than immediately writing code, I wanted to first understand the business, identify its operational challenges, and design a software solution around actual user needs.
+The Salon Management System is an internal, browser-based application for two primary roles:
 
-This repository documents that entire journey—from business discovery and product planning to implementation and deployment.
+| Role | Responsibilities |
+| --- | --- |
+| **Owner** | Manages staff, catalog, commission rules and user accounts; reviews historical sales and reports; authorizes transaction voids and historical back-entry. |
+| **Cashier** | Records completed sales and monitors authorized transactions for the current salon business date. |
 
----
+Barbers and stylists are represented in staff and commission records but do not need individual system logins for the MVP.
 
-# Project Overview
-
-The Salon Management System is an internal business management application designed specifically for salon operations.
-
-Its primary objective is to replace manual workflows with a centralized digital system that enables cashiers and business owners to efficiently manage sales, commissions, services, and business reports.
-
-Beyond building functional software, this project demonstrates a complete product development lifecycle, emphasizing business analysis, requirements gathering, software design, implementation, testing, and continuous improvement.
-
----
-
-# Business Problem
-
-The existing business process relies entirely on manual operations.
-
-Current workflow:
-
-1. Customer receives one or more services.
-2. Cashier records every transaction in a handwritten logbook.
-3. At the end of the day, commissions are manually computed.
-4. Daily sales reports are prepared manually.
-5. The owner reviews the records for verification.
-
-This process creates several operational challenges:
-
-- Manual sales logging
-- Manual commission computation
-- Time-consuming daily closing
-- Human errors during calculations
-- Difficult reporting and reconciliation
-- No historical business analytics
-- Limited visibility into business performance
-
----
-
-# Proposed Solution
-
-Develop a centralized web application that digitizes the entire sales and commission workflow.
-
-The system enables the cashier to quickly record completed transactions while automatically calculating commissions and generating accurate reports for the business owner.
-
-The solution focuses on improving operational efficiency, maintaining data accuracy, and supporting better business decision-making.
-
----
-
-# Objectives
+## Business Problems and Objectives
 
 The MVP aims to:
 
-- Replace handwritten sales logs.
-- Automate commission computation.
-- Reduce operational errors.
-- Support both service and product sales.
-- Preserve historical commission records.
-- Generate daily and monthly reports.
-- Improve business visibility through centralized data.
+- Replace handwritten sales logs for normal online operations.
+- Automatically calculate staff commissions and the remaining Business Share.
+- Support completed service and product sales, including multiple items in a transaction.
+- Reduce manual calculation errors and speed up daily reconciliation.
+- Preserve original transaction prices, staff assignments, and commission amounts.
+- Provide daily and monthly reports for authorized users.
 
----
+**Business Share is not net profit.** Expense tracking and payroll are outside the MVP.
 
-# Target Users
+## MVP Features
 
-| User | Responsibilities |
-|-------|------------------|
-| **Owner** | Reviews reports, monitors revenue, manages services, and oversees business performance. |
-| **Cashier** | Records completed sales, processes transactions, and performs daily closing. |
+- Secure Owner and Cashier login with role-based access control.
+- Staff, service, product, price, and commission-rule management.
+- Completed transactions with multiple service and/or product items.
+- Required staff assignment for service items; optional assignment for product items.
+- Variable service prices.
+- Cash and GCash payments, with required reference numbers for GCash.
+#NAME?
+- Daily and monthly sales reports and staff commission breakdowns.
+#NAME?
+- Current-day manual sale back-entry by Owner or Cashier; previous-day back-entry and reconciliation by Owner only.
 
----
+### Important Business Rules
 
-# Core Features
+- Haircut commission: **50% staff / 50% Business Share**.
+- Services using salon products: **40% staff / 60% Business Share**.
+- Product sales may have a fixed staff commission. If no staff member is assigned, no staff commission is earned for that product item.
+- **Staff Commission + Business Share = Selling Price** for each sale item.
+- **Cash Sales + GCash Sales = Gross Sales** under the approved reporting rules.
+- Record sales only after payment has been received.
+- A completed sale cannot be edited or deleted. Corrections use a new transaction; only the Owner may void an existing sale.
+- Voided sales do not contribute to active sales and commission reports.
+- Historical financial values are snapshotted and must not change when catalog prices or commission rules change.
+- Money calculations use decimal-safe arithmetic.
 
-### Authentication
+## Out of Scope for the MVP
 
-- Secure login
-- Role-based access
+Inventory management, appointments, customer profiles and history, loyalty programs, expense tracking, payroll, multi-branch operations, native mobile apps, offline application synchronization, AI forecasting, and advanced business intelligence.
 
-### Sales Management
+## Technology Stack
 
-- Record completed services
-- Record product sales
-- Support multiple items per customer transaction
-
-### Commission Management
-
-- Automatic commission calculation
-- Percentage-based commissions
-- Fixed commission support
-- Historical commission preservation
-
-### Reporting
-
-- Daily Sales Report
-- Monthly Sales Report
-- Commission Breakdown
-- Revenue Summary
-
-### Service Management
-
-- Manage available services
-- Flexible pricing
-- Product management
-
----
-
-# Business Rules
-
-The application follows the existing business rules of the salon.
-
-### Haircuts
-
-- 50% Barber
-- 50% Owner
-
-### Services Using Salon Products
-
-Examples:
-
-- Hair Color
-- Hair Treatment
-- Rebond
-
-Commission:
-
-- 40% Stylist
-- 60% Owner
-
-### Product Sales
-
-Products such as Hair Wax provide a fixed commission to the employee who sold the item.
-
-Additional rules:
-
-- Prices may be manually adjusted depending on the service.
-- Every sale item belongs to only one barber or stylist.
-- Sales cannot be modified after being saved.
-- Historical commission values must never change after recording.
-
----
-
-# Business Value
-
-The system is expected to improve both operational efficiency and business decision-making.
-
-Benefits include:
-
-- Faster daily closing
-- Automated commission computation
-- Reduced human error
-- Better financial visibility
-- Reliable historical records
-- Standardized business processes
-- Improved scalability for future expansion
-
----
-
-# Success Metrics
-
-The MVP will be considered successful if:
-
-- Sales can be recorded in under **30 seconds**.
-- Commission calculations are fully automated.
-- Daily reports are generated instantly.
-- Manual calculator usage is eliminated.
-- End-of-day reconciliation is significantly faster than the current manual process.
-
----
-
-# Technology Stack
-
-| Layer | Technology |
-|---------|------------|
-| Backend | Python, Flask |
-| Frontend | HTML, CSS, JavaScript, Bootstrap |
+| Layer | Approved Technology |
+| --- | --- |
+| Frontend | React |
+| Backend | Python + FastAPI |
 | Database | PostgreSQL |
-| Deployment | Render |
-| Version Control | Git & GitHub |
+| ORM | SQLAlchemy 2.x (synchronous) |
+| Database migrations | Alembic |
+| API | Versioned REST API (`/api/v1`) using JSON |
+| Authentication | PostgreSQL-backed server-managed sessions with secure HttpOnly cookies |
+| Version control | Git and GitHub |
+| Production deployment | Online-only cloud deployment; hosting provider to be selected |
 
----
+The backend follows a **feature-based modular monolith** design. Financial calculations and authorization are enforced on the backend.
 
-# Repository Structure
+## Repository Structure
 
+The repository currently contains product documentation and an initial backend scaffold. The following is a **conceptual layout**; some folders and files will be created during development rather than existing today.
+
+```text
+salon-management-system/
+├── README.md
+├── backend/                # Initial scaffold; implementation in progress
+│   └── app/
+│       ├── core/
+│       ├── db/
+│       └── modules/        # Business modules will be implemented here
+├── docs/
+│   ├── 01-discovery/
+│   ├── 02-planning/
+│   ├── 03-design/
+│   ├── 04-development/
+│   ├── 05-testing/
+│   └── 06-retrospective/
+└── frontend/               # Planned, not yet implemented
 ```
-backend/
-frontend/
-database/
-docs/
-tests/
-assets/
-```
 
----
+Other folders such as tests, migrations, and deployment configuration will be introduced as needed. The actual Git repository is the source of truth for current file locations.
 
-# Documentation
+## Documentation
 
-This repository follows a product-first development process.
+This is a documentation-first project. The key specifications are maintained in `docs/`:
 
-Documentation is treated as a core project asset rather than an afterthought.
+- **Discovery:** Business Requirements Specification and user personas.
+- **Planning:** MVP Scope, PRD, roadmap, and user stories.
+- **Design:** Database Design, proposed v1.1 revisions, System Architecture, API Design, and wireframes.
+- **Development / Testing / Retrospective:** Working records and deliverables to be filled as implementation proceeds.
 
-Included documentation:
+The approved business rules and current design decisions should guide implementation. Where documents disagree, the inconsistency must be reviewed rather than silently ignored.
 
-- Business Requirements Specification (BRS)
-- Product Requirements Document (PRD)
-- User Personas
-- User Stories
-- Database Design
-- API Design
-- Wireframes
-- Sprint Documentation
-- Test Cases
-- Development Journal
-- Portfolio Case Study
-
----
-
-# Product Development Journey
-
-Unlike a typical academic software project, this repository documents the complete software product lifecycle.
-
-Every major phase is documented to demonstrate how a real business problem is translated into a working software solution.
-
-Development Phases:
-
-1. Discovery
-2. Planning
-3. Design
-4. Development
-5. Testing
-6. Deployment
-7. Retrospective
-
----
-
-# Project Roadmap
+## Project Roadmap and Current Status
 
 | Phase | Status |
-|---------|--------|
-| Discovery | ✅ Completed |
-| Planning | 🚧 In Progress |
-| Design | ⏳ Planned |
-| Development | ⏳ Planned |
-| Testing | ⏳ Planned |
-| Deployment | ⏳ Planned |
-| Retrospective | ⏳ Planned |
+| --- | --- |
+| Business discovery | Documented |
+| MVP planning | Documented |
+| Database and system architecture | Designed; refinements may continue during implementation |
+| API design and wireframes | Detailed implementation work pending |
+| Application development | Starting: backend foundation |
+| Testing | Not yet implemented |
+| Production deployment | Not yet implemented |
+| Retrospective / portfolio case study | Planned |
 
----
+**Current status:** The project is transitioning from planning and design into AI-assisted MVP implementation. The repository includes documentation and an initial backend scaffold; the application is **not yet functional or production-ready**.
 
-# Current Status
+### Initial Development Approach
 
-The project is currently focused on understanding the business before implementation.
+Work in small, testable increments: inspect the relevant specification, plan a focused change, implement, run tests, review the diff, and commit verified work. Early tasks will establish the FastAPI foundation, database access, and automated tests before implementing financial workflows.
 
-Current activities include:
+## Production and Business Continuity
 
-- Business analysis
-- Requirements gathering
-- Product planning
-- Documentation
-- System design
+The MVP is **online-only**. During an internet or service outage, salon staff will use a manual paper sales log. Once service returns, authorized users will encode and reconcile missing transactions while preserving the original business date.
 
-Development will begin only after the product requirements have been fully defined.
+The approved recovery targets are **24-hour RPO and 24-hour RTO**, with daily PostgreSQL backups, 14-day retention, and quarterly restore tests. These are **design objectives**, not proven capabilities; they must be validated before production use.
 
----
+## Success Measures
 
-# Future Enhancements
+The product aims to make transaction entry fast, eliminate manual commission calculation during normal operations, improve daily reconciliation, and provide reliable financial history. The original planning target of recording a sale in under 30 seconds will need validation with real users.
 
-Potential improvements after the MVP include:
+## Future Enhancements
 
-- Inventory Management
-- Appointment Booking
-- Customer Profiles
-- Customer History
-- Analytics Dashboard
-- Exportable Reports
-- Audit Logs
-- Multi-Branch Support
-- AI-powered Business Insights
+Potential post-MVP improvements include inventory, appointments, customer records, exportable reports, multi-branch support, and advanced analytics. Essential security and financial audit events are already part of the current design and are **not** deferred as a general future enhancement.
 
----
+## Development Philosophy
 
-# Screenshots
+This repository documents a real product-development journey: discovering a business problem, defining the MVP, designing the system, implementing it with AI assistance, testing it, and improving it through feedback. AI can assist with implementation, but generated changes must be reviewed and tested before they are accepted.
 
-Screenshots will be added as development progresses.
+## Author
 
----
-
-# System Architecture
-
-Architecture diagrams will be included during the design phase.
-
----
-
-# Development Philosophy
-
-This project is intentionally being developed as if it were a real software product.
-
-Instead of immediately writing code, the development process begins with understanding the business, identifying user needs, defining requirements, and validating product decisions.
-
-The objective is not simply to build a working application, but to demonstrate the complete process of turning a real-world business problem into a maintainable software solution.
-
----
-
-# About This Repository
-
-This repository serves two purposes:
-
-1. Develop an internal business management system for a real barbershop and salon.
-2. Document the complete product development lifecycle—from discovery and planning to deployment and retrospective.
-
-The final result is intended to demonstrate both software engineering fundamentals and product management thinking.
-
----
-
-# Author
-
-**Rafael Hidalgo**
-
-Second-Year Computer Science Student  
-Specialization in Artificial Intelligence
-
-Aspiring AI Product Manager
+Rafael Hidalgo  
+Second-Year Computer Science Student — Artificial Intelligence specialization  
 
 Building software with a product-first mindset by combining business analysis, software engineering, and AI-assisted development.

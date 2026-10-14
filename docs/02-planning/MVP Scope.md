@@ -7,11 +7,7 @@
 | Project | Salon Management System |
 | Client | Yab's Hair and Beauty Studio |
 | Document | Minimum Viable Product Scope |
-| Version | 1.0 |
-| Status | Validated |
-| Author | Rafael Hidalgo |
-| Date Created | August 11, 2026 |
-| Last Updated | August 11, 2026 |
+| Version | 1.0 |a
 
 ## Purpose
 
