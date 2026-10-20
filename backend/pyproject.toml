@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "FastAPI backend for Yab's Salon Management System"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.13,<2.0",
     "fastapi>=0.115,<1.0",
     "python-dotenv>=1.0,<2.0",
     "psycopg[binary]>=3.2,<4.0",
