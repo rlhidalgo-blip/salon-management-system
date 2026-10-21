@@ -4,6 +4,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 import App from './App.jsx'
 
+vi.mock('../features/staff/StaffManagement.jsx', () => ({
+  default: () => <section aria-label="Staff Management" />,
+}))
+
 const current = {
   user: { id: 1, username: 'synthetic_owner', role: 'Owner' },
   csrf_token: 'synthetic-csrf',
@@ -40,6 +44,18 @@ afterEach(() => {
 })
 
 describe('browser authentication flow', () => {
+  it('shows staff controls only for an authenticated Owner', async () => {
+    fetch.mockResolvedValueOnce(reply(200, current))
+    const { unmount } = render(<App />)
+    expect(await screen.findByRole('region', { name: 'Staff Management' })).toBeTruthy()
+    unmount()
+    fetch.mockResolvedValueOnce(reply(200, {
+      ...current, user: { ...current.user, role: 'Cashier' },
+    }))
+    render(<App />)
+    expect(await screen.findByText('Role: Cashier')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Staff Management' })).toBeNull()
+  })
   it('verifies /me after login before showing the landing screen', async () => {
     const verification = deferred()
     fetch.mockResolvedValueOnce(reply(401))
@@ -58,7 +74,9 @@ describe('browser authentication flow', () => {
     expect(fetch.mock.calls[2][1].credentials).toBe('same-origin')
     verification.resolve(reply(200, current))
     expect(await screen.findByText('Role: Owner')).toBeTruthy()
-    expect(screen.getByText('Username: synthetic_owner')).toBeTruthy()
+    expect(screen.getByRole('img', { name: "Yab's Hair and Beauty Studio" }).getAttribute('src'))
+      .toBe('/assets/yabs-logo.png')
+    expect(screen.queryByRole('heading', { name: 'Signed in' })).toBeNull()
   })
 
   it('shows generic invalid-credential feedback', async () => {

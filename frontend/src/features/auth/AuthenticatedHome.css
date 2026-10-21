@@ -52,6 +52,69 @@
 .landing-logout:disabled { cursor: not-allowed; opacity: 0.65; }
 .landing-message { min-height: 1.3rem; color: var(--muted); font-size: 0.85rem; }
 
+.owner-app {
+  --owner-gutter: clamp(1rem, 4vw, 3rem);
+  --owner-content-width: 72rem;
+  min-height: 100vh;
+  min-height: 100svh;
+  background: var(--background);
+}
+
+.owner-header {
+  padding: 0.65rem var(--owner-gutter);
+  border-bottom: 1px solid var(--border);
+}
+
+.owner-header-inner { width: min(100%, var(--owner-content-width)); margin-inline: auto; }
+
+.owner-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.owner-logo {
+  display: block;
+  width: 7.5rem;
+  height: 3rem;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.owner-header-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.owner-role { color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
+.owner-logout {
+  min-height: 2.75rem;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.owner-logout:disabled { cursor: not-allowed; opacity: 0.65; }
+.owner-main {
+  width: min(100%, calc(var(--owner-content-width) + 2 * var(--owner-gutter)));
+  margin-inline: auto;
+  padding-inline: var(--owner-gutter);
+}
+.owner-message { margin: 1rem 0 0; color: var(--error); }
+
+@media (max-width: 640px) {
+  .owner-header-inner { flex-wrap: wrap; }
+  .owner-header-controls { width: 100%; justify-content: space-between; }
+  .owner-logo { width: 6.5rem; height: 2.5rem; }
+}
+
 .session-check {
   display: grid;
   place-content: center;
