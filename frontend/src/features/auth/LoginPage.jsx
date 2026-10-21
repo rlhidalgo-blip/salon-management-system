@@ -1,35 +1,42 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import './LoginPage.css'
 
-export default function LoginPage({ theme, onToggleTheme }) {
+export default function LoginPage({ theme, onToggleTheme, onLogin }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [touched, setTouched] = useState({ username: false, password: false })
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  const timer = useRef(null)
-
-  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const submitting = useRef(false)
 
   const usernameMissing = !username.trim()
   const passwordMissing = !password
   const usernameError = touched.username && usernameMissing
   const passwordError = touched.password && passwordMissing
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault()
     setTouched({ username: true, password: true })
-    if (usernameMissing || passwordMissing || loading) return
+    if (usernameMissing || passwordMissing || submitting.current) return
 
-    // UI-only feedback. Do not send credentials or imply authentication worked.
+    submitting.current = true
     setMessage('')
     setLoading(true)
-    timer.current = window.setTimeout(() => {
+    try {
+      await onLogin(username.trim(), password)
+      setPassword('')
+    } catch (error) {
+      setMessage(error.status === 401
+        ? 'Unable to sign in. Check your credentials and try again.'
+        : error.status === 429
+          ? 'Too many sign-in attempts. Please try again later.'
+          : 'Sign-in is temporarily unavailable. Please try again.')
+    } finally {
+      submitting.current = false
       setLoading(false)
-      setMessage('Live sign-in is not connected yet. No request was sent.')
-    }, 400)
+    }
   }
 
   return (
@@ -82,7 +89,7 @@ export default function LoginPage({ theme, onToggleTheme }) {
               disabled={loading} aria-busy={loading}>
               {loading ? 'Preparing…' : 'Sign In'}
             </button>
-            <p className="form-message" role="status" aria-live="polite">{message}</p>
+            <p className="form-message" role="alert">{message}</p>
           </form>
         </div>
 
