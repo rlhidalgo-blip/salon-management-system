@@ -1,0 +1,64 @@
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/playfair-display/latin-600.css';
+
+:root {
+  font-family: 'Inter', sans-serif;
+  font-synthesis: none;
+  color-scheme: light;
+  --background: #FAF8F5;
+  --surface: #EFE8DD;
+  --accent: #C9A96A;
+  --accent-secondary: #8E6F3E;
+  --text: #2B2723;
+  /* Login-only semantic tokens, selected for readable contrast. */
+  --muted: #62584D;
+  --border: #A89A88;
+  --error: #9B2F29;
+  --focus: #745219;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --background: #211E1B;
+    --surface: #302B26;
+    --accent: #C9A96A;
+    --accent-secondary: #B7A58D;
+    --text: #F5F0E8;
+    --muted: #C5B8A8;
+    --border: #877A69;
+    --error: #FFACA2;
+    --focus: #E7C887;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --background: #211E1B;
+  --surface: #302B26;
+  --accent: #C9A96A;
+  --accent-secondary: #B7A58D;
+  --text: #F5F0E8;
+  --muted: #C5B8A8;
+  --border: #877A69;
+  --error: #FFACA2;
+  --focus: #E7C887;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--background);
+  color: var(--text);
+}
+
+button, input { font: inherit; }
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
