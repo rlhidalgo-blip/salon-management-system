@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import AuthenticatedHome from '../features/auth/AuthenticatedHome.jsx'
 import { getCurrentUser, login, logout } from '../features/auth/authApi.js'
@@ -48,6 +48,21 @@ export default function App() {
     setAuthState('unauthenticated')
   }
 
+  const revalidateSession = useCallback(async () => {
+    try {
+      const current = await getCurrentUser()
+      setSession(current)
+      return true
+    } catch (error) {
+      if (error.status === 401) {
+        setSession(null)
+        setAuthState('unauthenticated')
+        return false
+      }
+      throw error
+    }
+  }, [])
+
   if (authState === 'checking') {
     return <main className="session-check" role="status">Checking your session…</main>
   }
@@ -66,6 +81,7 @@ export default function App() {
 
   if (authState === 'authenticated') {
     return <AuthenticatedHome user={session.user} theme={theme}
+      csrfToken={session.csrfToken} onRevalidateSession={revalidateSession}
       onToggleTheme={toggleTheme} onLogout={handleLogout} />
   }
 

@@ -1,0 +1,68 @@
+.staff-management {
+  width: min(100%, 72rem);
+  margin: 0 auto;
+  padding: 1.5rem 0 3rem;
+}
+
+.staff-management h2 {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.6rem, 3vw, 2rem);
+}
+
+.staff-management h3 { margin-top: 0; font-family: 'Playfair Display', Georgia, serif; }
+.staff-heading-row, .staff-controls, .staff-dialog-actions { display: flex; align-items: end; gap: 1rem; }
+.staff-heading-row { justify-content: space-between; }
+.staff-heading-row p { margin: 0.4rem 0 0; color: var(--muted); }
+.staff-management button, .staff-management input, .staff-management select {
+  min-height: 2.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  font: inherit;
+}
+.staff-management button { padding: 0.55rem 0.9rem; background: var(--surface); color: var(--text); cursor: pointer; }
+.staff-management button:disabled { opacity: 0.6; cursor: not-allowed; }
+.staff-management .staff-primary { background: var(--accent); border-color: var(--accent); color: #2B2723; font-weight: 600; }
+.staff-controls { margin: 1.25rem 0 0.85rem; flex-wrap: wrap; }
+.staff-controls label { display: grid; gap: 0.35rem; font-weight: 600; }
+.staff-controls input, .staff-controls select, .staff-dialog-form input, .staff-dialog-form select {
+  padding: 0.55rem 0.7rem;
+  background: var(--background);
+  color: var(--text);
+}
+.staff-controls input { width: min(100%, 20rem); }
+.staff-feedback { margin: 0 0 0.85rem; color: var(--muted); }
+.staff-results { overflow: hidden; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--surface); }
+.staff-empty { margin: 0; padding: 1.4rem 1rem; color: var(--muted); }
+.staff-table { width: 100%; border-collapse: collapse; background: transparent; }
+.staff-table th, .staff-table td { padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+.staff-table td { overflow-wrap: anywhere; }
+.staff-table th { font-weight: 600; }
+.staff-table tr:last-child td { border-bottom: 0; }
+.staff-status { font-weight: 600; }
+.staff-status--active { color: var(--accent-secondary); }
+.staff-management dialog {
+  width: min(calc(100% - 2rem), 26rem);
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--background);
+  color: var(--text);
+}
+.staff-management dialog::backdrop { background: rgba(0, 0, 0, 0.62); }
+.staff-dialog-form { display: grid; gap: 0.65rem; }
+.staff-dialog-form label { font-weight: 600; }
+.staff-dialog-form p[role='alert'], .staff-management [role='alert'] { color: var(--error); }
+.staff-dialog-actions { margin-top: 1rem; justify-content: flex-end; flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .staff-heading-row { align-items: start; flex-direction: column; }
+  .staff-controls { align-items: stretch; flex-direction: column; }
+  .staff-controls input { width: 100%; }
+  .staff-table, .staff-table tbody, .staff-table tr, .staff-table td { display: block; width: 100%; }
+  .staff-table { background: transparent; }
+  .staff-table thead { display: none; }
+  .staff-table tr { margin: 0 0 0.75rem; padding: 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 0.35rem; }
+  .staff-table td { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.45rem; border: 0; }
+  .staff-table td::before { content: attr(data-label); font-weight: 600; }
+}
