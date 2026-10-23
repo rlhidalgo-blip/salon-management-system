@@ -61,12 +61,15 @@ Each feature may contain `router.py`, `service.py`, `repository.py`, `schemas.py
 | Reconcile historical paper sales | Yes | No |
 | View current Manila-date transactions | Yes | Yes |
 | View historical transactions | Yes | No |
+| View transaction-level Staff Commission, Business Share, and commission snapshots within authorized dates | Yes | Yes |
 | View today's operational totals (gross, Cash, GCash, staff commissions) | Yes | Yes |
-| View monthly reports / Business Share | Yes | No |
+| View monthly reports | Yes | No |
 | Manage staff, catalog, prices, commissions, accounts | Yes | No |
 | Void completed transactions | Yes | No |
 
 One shared salon business day equals a calendar date in `Asia/Manila`; no separate shifts entity. Cashiers see all transactions assigned to **today's business date**, regardless of which cashier recorded them. FastAPI applies authorization and date filtering to list and detail queries. At midnight, prior-day records become Owner-only. Owner voids use the existing valid Owner session; **no manager/admin passcode or repeat password**. A void requires confirmation, reason, backend role/CSRF/state validation, atomic update, and audit event. Frontend button visibility is not a security control.
+
+**Future multi-branch requirement (not implemented in the MVP):** Cashiers need Gross Sales, Staff Commission, Business Share, commission-rule snapshots, credited Staff, payment details, and transaction status within their authorized operational scope. Before supporting multiple branches, explicitly design branch-scoped authorization and review branch ownership for Users, Staff, catalog records, transactions, idempotency recovery, and financial reports. The current schema and shared-business-date checks do **not** provide branch isolation; do not deploy this implementation as multi-branch without that design and migration review.
 
 ## 5. Authentication and session security
 
