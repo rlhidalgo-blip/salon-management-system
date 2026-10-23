@@ -154,6 +154,10 @@ it('keeps Cashier Sales primary and exposes only Sales and today-only History', 
 const dailyReport = { business_date: '2026-10-23', gross_sales: '100.00', cash_sales: '100.00',
   gcash_sales: '0.00', total_staff_commission: '50.00', total_business_share: '50.00',
   completed_transaction_count: 1, voided_transaction_count: 0, staff_commissions: [] }
+const monthlyReport = { reporting_month: '2026-10', gross_sales: '100.00', cash_sales: '100.00',
+  gcash_sales: '0.00', total_staff_commission: '50.00', total_business_share: '50.00',
+  completed_transaction_count: 1, voided_transaction_count: 0, staff_performance: [],
+  unassigned_product_sales: '0.00' }
 
 it('adds Owner Reports after History, preserves Staff default, and reloads on section return', async () => {
   fetch.mockImplementation((url) => Promise.resolve(response(200,
@@ -174,6 +178,26 @@ it('adds Owner Reports after History, preserves Staff default, and reloads on se
   expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/auth/me')).toHaveLength(1)
 })
 
+it('switches Owner Daily and Monthly reports without another session check', async () => {
+  fetch.mockImplementation((url) => Promise.resolve(response(200,
+    url.endsWith('/me') ? owner : url === '/api/v1/staff' ? []
+      : url === '/api/v1/reports/monthly' ? monthlyReport : dailyReport)))
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Staff Management' })
+  fireEvent.click(screen.getByRole('button', { name: 'Reports' }))
+  expect(await screen.findByRole('heading', { name: 'Daily Financial Summary' })).toBeTruthy()
+  const views = screen.getByRole('navigation', { name: 'Report views' })
+  expect(within(views).getByRole('button', { name: 'Daily' }).getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(within(views).getByRole('button', { name: 'Monthly' }))
+  expect(await screen.findByRole('heading', { name: 'Monthly Financial Summary' })).toBeTruthy()
+  expect(screen.getByLabelText('Reporting month')).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Daily Financial Summary' })).toBeNull()
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/reports/monthly')).toHaveLength(1)
+  fireEvent.click(within(views).getByRole('button', { name: 'Daily' }))
+  expect(await screen.findByRole('heading', { name: 'Daily Financial Summary' })).toBeTruthy()
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/auth/me')).toHaveLength(1)
+})
+
 it('adds today-only Reports for Cashier without Owner management controls', async () => {
   const cashier = { ...owner, user: { ...owner.user, role: 'Cashier' } }
   fetch.mockImplementation((url) => Promise.resolve(response(200,
@@ -186,7 +210,9 @@ it('adds today-only Reports for Cashier without Owner management controls', asyn
   fireEvent.click(within(sections).getByRole('button', { name: 'Reports' }))
   expect(await screen.findByRole('heading', { name: 'Daily Financial Summary' })).toBeTruthy()
   expect(screen.queryByLabelText('Business date')).toBeNull()
+  expect(screen.queryByRole('navigation', { name: 'Report views' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Staff' })).toBeNull()
+  expect(fetch.mock.calls.some(([url]) => url.startsWith('/api/v1/reports/monthly'))).toBe(false)
   expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/auth/me')).toHaveLength(1)
 })
 
