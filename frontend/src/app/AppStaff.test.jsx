@@ -105,16 +105,15 @@ it('revalidates Catalog 401 and returns to login when the session is invalid', a
   expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/auth/me')).toHaveLength(2)
 })
 
-it('keeps Cashier on the minimal landing screen without staff requests', async () => {
+it('shows Sales as the Cashier primary screen without Owner management requests', async () => {
   fetch.mockResolvedValueOnce(response(200, {
     ...owner, user: { ...owner.user, role: 'Cashier' },
-  }))
+  })).mockResolvedValueOnce(response(200, { staff: [], services: [], products: [] }))
   render(<App />)
   expect(await screen.findByText('Role: Cashier')).toBeTruthy()
-  expect(screen.getByRole('heading', { name: 'Signed in' })).toBeTruthy()
-  expect(screen.queryByRole('banner')).toBeNull()
+  expect(await screen.findByRole('heading', { name: 'Sales Recording' })).toBeTruthy()
   expect(screen.queryByText('Staff Management')).toBeNull()
   expect(screen.queryByText('Catalog Management')).toBeNull()
   expect(screen.queryByRole('navigation', { name: 'Owner sections' })).toBeNull()
-  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/v1/auth/me', '/api/v1/sales/options'])
 })
