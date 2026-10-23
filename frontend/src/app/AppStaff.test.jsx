@@ -141,7 +141,7 @@ it('keeps Cashier Sales primary and exposes only Sales and today-only History', 
   render(<App />)
   await screen.findByRole('heading', { name: 'Sales Recording' })
   const sections = screen.getByRole('navigation', { name: 'Cashier sections' })
-  expect(within(sections).getAllByRole('button').map((button) => button.textContent)).toEqual(['Sales', 'History'])
+  expect(within(sections).getAllByRole('button').map((button) => button.textContent)).toEqual(['Sales', 'History', 'Reports'])
   fireEvent.click(within(sections).getByRole('button', { name: 'History' }))
   expect(await screen.findByRole('heading', { name: 'Transaction History' })).toBeTruthy()
   expect(screen.queryByLabelText('Business date')).toBeNull()
@@ -150,6 +150,96 @@ it('keeps Cashier Sales primary and exposes only Sales and today-only History', 
   expect(await screen.findByRole('heading', { name: 'Sales Recording' })).toBeTruthy()
   expect(fetch.mock.calls.filter(([url]) => url.endsWith('/me'))).toHaveLength(1)
 })
+
+const dailyReport = { business_date: '2026-10-23', gross_sales: '100.00', cash_sales: '100.00',
+  gcash_sales: '0.00', total_staff_commission: '50.00', total_business_share: '50.00',
+  completed_transaction_count: 1, voided_transaction_count: 0, staff_commissions: [] }
+
+it('adds Owner Reports after History, preserves Staff default, and reloads on section return', async () => {
+  fetch.mockImplementation((url) => Promise.resolve(response(200,
+    url.endsWith('/me') ? owner : url === '/api/v1/staff' ? [] : dailyReport)))
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Staff Management' })
+  const sections = screen.getByRole('navigation', { name: 'Owner sections' })
+  expect(within(sections).getAllByRole('button').map((button) => button.textContent)).toEqual([
+    'Staff', 'Commission Rules', 'Catalog', 'Sales', 'History', 'Reports',
+  ])
+  fireEvent.click(within(sections).getByRole('button', { name: 'Reports' }))
+  expect(await screen.findByRole('heading', { name: 'Daily Financial Summary' })).toBeTruthy()
+  expect(screen.getByLabelText('Business date')).toBeTruthy()
+  fireEvent.click(within(sections).getByRole('button', { name: 'Staff' }))
+  await screen.findByRole('heading', { name: 'Staff Management' })
+  fireEvent.click(within(sections).getByRole('button', { name: 'Reports' }))
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/reports/daily')).toHaveLength(2))
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/auth/me')).toHaveLength(1)
+})
+
+it('adds today-only Reports for Cashier without Owner management controls', async () => {
+  const cashier = { ...owner, user: { ...owner.user, role: 'Cashier' } }
+  fetch.mockImplementation((url) => Promise.resolve(response(200,
+    url.endsWith('/me') ? cashier : url.endsWith('/sales/options')
+      ? { staff: [], services: [], products: [] } : dailyReport)))
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Sales Recording' })
+  const sections = screen.getByRole('navigation', { name: 'Cashier sections' })
+  expect(within(sections).getAllByRole('button').map((button) => button.textContent)).toEqual(['Sales', 'History', 'Reports'])
+  fireEvent.click(within(sections).getByRole('button', { name: 'Reports' }))
+  expect(await screen.findByRole('heading', { name: 'Daily Financial Summary' })).toBeTruthy()
+  expect(screen.queryByLabelText('Business date')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Staff' })).toBeNull()
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/auth/me')).toHaveLength(1)
+})
+
+it('revalidates a Reports 401 and returns to login when the session expired', async () => {
+  const cashier = { ...owner, user: { ...owner.user, role: 'Cashier' } }
+  let checks = 0
+  fetch.mockImplementation((url) => Promise.resolve(url.endsWith('/me')
+    ? response(++checks === 1 ? 200 : 401, cashier)
+    : url.endsWith('/sales/options') ? response(200, { staff: [], services: [], products: [] })
+      : response(401, {})))
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Sales Recording' })
+  fireEvent.click(screen.getByRole('button', { name: 'Reports' }))
+  expect(await screen.findByRole('button', { name: 'Sign In' })).toBeTruthy()
+  expect(checks).toBe(2)
+})
+
+it.each([320, 360, 390].flatMap((width) => ['Owner', 'Cashier'].map((role) => [width, role])))(
+  'keeps header, theme, logout, and Reports controls functional at %ipx for %s', async (width, role) => {
+    const priorWidth = window.innerWidth
+    window.innerWidth = width
+    try {
+      const account = { ...owner, user: { ...owner.user, role } }
+      fetch.mockImplementation((url) => Promise.resolve(url.endsWith('/me') ? response(200, account)
+        : url === '/api/v1/staff' ? response(200, [])
+          : url === '/api/v1/sales/options' ? response(200, { staff: [], services: [], products: [] })
+            : url === '/api/v1/reports/daily' ? response(200, dailyReport)
+              : url.endsWith('/logout') ? response(204) : response(404)))
+      render(<App />)
+      await screen.findByText(`Role: ${role}`)
+      const header = screen.getByRole('banner')
+      const logo = within(header).getByRole('img', { name: "Yab's Hair and Beauty Studio" })
+      const toggle = within(header).getByRole('button', { name: 'Switch to dark mode' })
+      const logout = within(header).getByRole('button', { name: 'Logout' })
+      expect(logo).toBeTruthy()
+      expect(toggle.parentElement).toBe(logout.parentElement)
+      expect(toggle.nextElementSibling).toBe(logout)
+      fireEvent.click(toggle)
+      expect(document.documentElement.dataset.theme).toBe('dark')
+      fireEvent.click(toggle)
+      expect(document.documentElement.dataset.theme).toBe('light')
+      fireEvent.click(screen.getByRole('button', { name: 'Reports' }))
+      const refresh = await screen.findByRole('button', { name: 'Refresh report' })
+      await waitFor(() => expect(refresh.disabled).toBe(false))
+      fireEvent.click(refresh)
+      await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/reports/daily')).toHaveLength(2))
+      fireEvent.click(logout)
+      expect(await screen.findByRole('button', { name: 'Sign In' })).toBeTruthy()
+    } finally {
+      window.innerWidth = priorWidth
+    }
+  },
+)
 
 it('revalidates History 401 and returns to login when the Cashier session expired', async () => {
   const cashier = { ...owner, user: { ...owner.user, role: 'Cashier' } }

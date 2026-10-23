@@ -5,6 +5,7 @@ import StaffManagement from '../staff/StaffManagement.jsx'
 import SalesRecording from '../sales/SalesRecording.jsx'
 import { usePendingSale } from '../sales/usePendingSale.js'
 import TransactionHistory from '../transactions/TransactionHistory.jsx'
+import DailyFinancialSummary from '../reports/DailyFinancialSummary.jsx'
 
 import './AuthenticatedHome.css'
 
@@ -72,6 +73,8 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
               onClick={() => setOwnerSection('sales')}>Sales</button>
             <button type="button" aria-pressed={ownerSection === 'history'}
               onClick={() => setOwnerSection('history')}>History</button>
+            <button type="button" aria-pressed={ownerSection === 'reports'}
+              onClick={() => setOwnerSection('reports')}>Reports</button>
           </nav>
           {error && <p className="owner-message" role="alert">{error}</p>}
           {ownerSection === 'staff'
@@ -83,8 +86,10 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
                 : ownerSection === 'sales'
                   ? <SalesRecording user={user} csrfToken={csrfToken} onRevalidateSession={onRevalidateSession}
                       pendingSale={pendingSale} />
-                  : <TransactionHistory user={user} csrfToken={csrfToken}
-                      onRevalidateSession={onRevalidateSession} />}
+                  : ownerSection === 'history'
+                    ? <TransactionHistory user={user} csrfToken={csrfToken}
+                        onRevalidateSession={onRevalidateSession} />
+                    : <DailyFinancialSummary user={user} onRevalidateSession={onRevalidateSession} />}
         </main>
       </div>
     )
@@ -118,13 +123,17 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
           onClick={() => setCashierSection('sales')}>Sales</button>
         <button type="button" aria-pressed={cashierSection === 'history'}
           onClick={() => setCashierSection('history')}>History</button>
+        <button type="button" aria-pressed={cashierSection === 'reports'}
+          onClick={() => setCashierSection('reports')}>Reports</button>
       </nav>
       {error && <p className="owner-message" role="alert">{error}</p>}
       {cashierSection === 'sales'
         ? <SalesRecording user={user} csrfToken={csrfToken} onRevalidateSession={onRevalidateSession}
             pendingSale={pendingSale} />
-        : <TransactionHistory user={user} csrfToken={csrfToken}
-            onRevalidateSession={onRevalidateSession} />}
+        : cashierSection === 'history'
+          ? <TransactionHistory user={user} csrfToken={csrfToken}
+              onRevalidateSession={onRevalidateSession} />
+          : <DailyFinancialSummary user={user} onRevalidateSession={onRevalidateSession} />}
     </main>
   </div>
 }
