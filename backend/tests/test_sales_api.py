@@ -137,6 +137,26 @@ def test_cashier_can_record_and_missing_auth_is_rejected(api):
     assert _send(client, _payload()).status_code == 401
 
 
+def test_cashier_financial_sale_and_previous_day_exact_key_recovery(api, monkeypatch):
+    client, _factory, app = api
+    app.dependency_overrides[get_current_principal] = lambda: Principal(2, "test_cashier", "Cashier", "synthetic")
+    key = uuid4()
+    recorded = _send(client, _payload(), key)
+    assert recorded.status_code == 201
+    assert recorded.json()["total_staff_commission"] == "77.00"
+    assert recorded.json()["total_business_share"] == "224.50"
+    assert recorded.json()["items"][0]["commission_type_snapshot"] == "Percentage"
+    import app.modules.transactions.service as service
+    monkeypatch.setattr(service, "_database_time",
+                        lambda _session: datetime(2026, 10, 24, 16, 30, tzinfo=timezone.utc))
+    recovery = client.get(f"/api/v1/transactions/by-idempotency-key/{key}")
+    assert recovery.status_code == 200
+    assert recovery.json()["status"] == "committed"
+    assert recovery.json()["sale"]["id"] == recorded.json()["id"]
+    assert recovery.json()["sale"]["total_staff_commission"] == "77.00"
+    assert recovery.json()["sale"]["total_business_share"] == "224.50"
+
+
 @pytest.mark.parametrize("change", [
     {"items": []},
     {"payment_method": "Cash", "gcash_reference": "x"},

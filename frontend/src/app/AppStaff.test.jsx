@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import App from './App.jsx'
 
@@ -116,4 +116,51 @@ it('shows Sales as the Cashier primary screen without Owner management requests'
   expect(screen.queryByText('Catalog Management')).toBeNull()
   expect(screen.queryByRole('navigation', { name: 'Owner sections' })).toBeNull()
   expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/v1/auth/me', '/api/v1/sales/options'])
+})
+
+it('adds Owner History without changing the default Staff section or rechecking the session', async () => {
+  fetch.mockImplementation((url) => Promise.resolve(response(200,
+    url.endsWith('/me') ? owner : url === '/api/v1/staff' ? []
+      : { items: [], next_cursor: null })))
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Staff Management' })
+  expect(screen.getByRole('button', { name: 'Staff' }).getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(screen.getByRole('button', { name: 'History' }))
+  expect(await screen.findByRole('heading', { name: 'Transaction History' })).toBeTruthy()
+  expect(screen.getByLabelText('Business date')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Staff' }))
+  expect(await screen.findByRole('heading', { name: 'Staff Management' })).toBeTruthy()
+  expect(fetch.mock.calls.filter(([url]) => url.endsWith('/me'))).toHaveLength(1)
+})
+
+it('keeps Cashier Sales primary and exposes only Sales and today-only History', async () => {
+  const cashier = { ...owner, user: { ...owner.user, role: 'Cashier' } }
+  fetch.mockImplementation((url) => Promise.resolve(response(200,
+    url.endsWith('/me') ? cashier : url.endsWith('/sales/options')
+      ? { staff: [], services: [], products: [] } : { items: [], next_cursor: null })))
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Sales Recording' })
+  const sections = screen.getByRole('navigation', { name: 'Cashier sections' })
+  expect(within(sections).getAllByRole('button').map((button) => button.textContent)).toEqual(['Sales', 'History'])
+  fireEvent.click(within(sections).getByRole('button', { name: 'History' }))
+  expect(await screen.findByRole('heading', { name: 'Transaction History' })).toBeTruthy()
+  expect(screen.queryByLabelText('Business date')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Staff' })).toBeNull()
+  fireEvent.click(within(sections).getByRole('button', { name: 'Sales' }))
+  expect(await screen.findByRole('heading', { name: 'Sales Recording' })).toBeTruthy()
+  expect(fetch.mock.calls.filter(([url]) => url.endsWith('/me'))).toHaveLength(1)
+})
+
+it('revalidates History 401 and returns to login when the Cashier session expired', async () => {
+  const cashier = { ...owner, user: { ...owner.user, role: 'Cashier' } }
+  let checks = 0
+  fetch.mockImplementation((url) => Promise.resolve(url.endsWith('/me')
+    ? response(++checks === 1 ? 200 : 401, cashier)
+    : url.endsWith('/sales/options') ? response(200, { staff: [], services: [], products: [] })
+      : response(401, {})))
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Sales Recording' })
+  fireEvent.click(screen.getByRole('button', { name: 'History' }))
+  expect(await screen.findByRole('button', { name: 'Sign In' })).toBeTruthy()
+  expect(checks).toBe(2)
 })

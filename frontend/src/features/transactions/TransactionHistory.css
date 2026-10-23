@@ -1,0 +1,75 @@
+.transaction-history { width: min(100%, 72rem); margin-inline: auto; padding: 1.1rem 0 2rem; }
+.transaction-history h1, .transaction-history h2 { font-family: 'Playfair Display', Georgia, serif; }
+.history-heading h1 { margin: 0; font-size: clamp(1.6rem, 3vw, 2rem); }
+.history-heading p { margin: 0.35rem 0 1rem; color: var(--muted); }
+.transaction-history button, .transaction-history input, .transaction-history textarea {
+  min-height: 2.75rem; border: 1px solid var(--border); border-radius: 0.35rem;
+  padding: 0.55rem 0.75rem; font: inherit;
+}
+.transaction-history button { background: var(--background); color: var(--text); cursor: pointer; }
+.transaction-history button:disabled { opacity: 0.6; cursor: not-allowed; }
+.transaction-history input, .transaction-history textarea {
+  background: var(--background); color: var(--text);
+}
+.transaction-history [role='alert'] { color: var(--error); }
+.history-date-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem; margin-bottom: 0.85rem; }
+.history-date-filter label { font-weight: 600; }
+.history-date-filter span { color: var(--muted); font-size: 0.875rem; }
+.history-results, .history-detail { min-width: 0; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--surface); }
+.history-empty { margin: 0; padding: 1.2rem; color: var(--muted); }
+.history-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.history-table th, .history-table td { padding: 0.65rem 0.55rem; text-align: left; border-bottom: 1px solid var(--border); }
+.history-table th:first-child, .history-table td:first-child { padding-left: 0.85rem; }
+.history-table th:last-child, .history-table td:last-child { padding-right: 0.85rem; }
+.history-table th { font-weight: 600; }
+.history-table tr:last-child td { border-bottom: 0; }
+.history-table td { overflow-wrap: anywhere; }
+.history-money, .history-summary dd, .history-item-finances dd { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.history-status { display: inline-block; padding: 0.25rem 0.5rem; border: 1px solid var(--border); border-radius: 0.35rem; font-weight: 600; }
+.history-status-completed { border-color: var(--accent-secondary); }
+.history-status-voided { color: var(--muted); }
+.history-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 0.7rem; margin-top: 0.85rem; }
+.history-pagination span { color: var(--muted); }
+.history-notice { color: var(--muted); }
+.history-back { margin-bottom: 0.8rem; }
+.history-detail { padding: 1rem; }
+.history-detail-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.history-detail-heading h2 { margin: 0; font-size: 1.45rem; }
+.history-detail-heading p { margin: 0.3rem 0 0; color: var(--muted); }
+.history-items { list-style: none; margin: 1rem 0; padding: 0; border-top: 1px solid var(--border); }
+.history-item { padding: 0.85rem 0; border-bottom: 1px solid var(--border); }
+.history-item-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.history-item-heading strong:first-child { min-width: 0; overflow-wrap: anywhere; }
+.history-item-heading strong:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.history-item p { margin: 0.35rem 0 0.55rem; color: var(--muted); font-size: 0.875rem; }
+.history-item-finances, .history-summary, .history-metadata { margin: 0; }
+.history-item-finances > div, .history-summary > div, .history-metadata > div {
+  display: flex; justify-content: space-between; gap: 1rem; padding: 0.3rem 0;
+}
+.history-item-finances dt, .history-summary dt, .history-metadata dt { color: var(--muted); }
+.history-item-finances dd, .history-summary dd, .history-metadata dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.history-summary { padding: 0.6rem 0; border-bottom: 1px solid var(--border); }
+.history-summary > div:first-child { font-weight: 600; }
+.history-summary > div:first-child dd { color: var(--accent-secondary); font-size: 1.1rem; }
+.history-metadata { padding: 0.65rem 0; }
+.transaction-history dialog { width: min(calc(100% - 2rem), 27rem); padding: 1.3rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--background); color: var(--text); }
+.transaction-history dialog::backdrop { background: rgba(0, 0, 0, 0.62); }
+.transaction-history dialog h2 { margin: 0; }
+.transaction-history dialog p { line-height: 1.45; }
+.transaction-history dialog label { display: block; margin-bottom: 0.35rem; font-weight: 600; }
+.transaction-history dialog textarea { display: block; width: 100%; min-height: 6rem; resize: vertical; }
+.history-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 0.55rem; margin-top: 1rem; }
+.transaction-history .history-danger { background: var(--accent); border-color: var(--accent); color: #2B2723; font-weight: 600; }
+@media (max-width: 1050px) {
+  .history-table, .history-table tbody, .history-table tr, .history-table td { display: block; width: 100%; }
+  .history-table thead { display: none; }
+  .history-table tr { margin: 0.55rem; padding: 0.4rem; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); }
+  .history-table td { display: flex; justify-content: space-between; align-items: start; gap: 1rem; padding: 0.35rem 0.45rem; border: 0; }
+  .history-table td:first-child, .history-table td:last-child { padding-inline: 0.45rem; }
+  .history-table td::before { content: attr(data-label); font-weight: 600; }
+  .history-table td:last-child { justify-content: flex-end; }
+}
+@media (max-width: 440px) {
+  .history-detail-heading { flex-direction: column; }
+  .history-item-finances > div, .history-summary > div, .history-metadata > div { align-items: start; }
+}

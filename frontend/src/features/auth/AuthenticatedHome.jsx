@@ -4,6 +4,7 @@ import CatalogManagement from '../catalog/CatalogManagement.jsx'
 import StaffManagement from '../staff/StaffManagement.jsx'
 import SalesRecording from '../sales/SalesRecording.jsx'
 import { usePendingSale } from '../sales/usePendingSale.js'
+import TransactionHistory from '../transactions/TransactionHistory.jsx'
 
 import './AuthenticatedHome.css'
 
@@ -11,6 +12,7 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [ownerSection, setOwnerSection] = useState('staff')
+  const [cashierSection, setCashierSection] = useState('sales')
   const submitting = useRef(false)
   const pendingSale = usePendingSale(user, onRevalidateSession)
 
@@ -68,6 +70,8 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
               onClick={() => setOwnerSection('catalog')}>Catalog</button>
             <button type="button" aria-pressed={ownerSection === 'sales'}
               onClick={() => setOwnerSection('sales')}>Sales</button>
+            <button type="button" aria-pressed={ownerSection === 'history'}
+              onClick={() => setOwnerSection('history')}>History</button>
           </nav>
           {error && <p className="owner-message" role="alert">{error}</p>}
           {ownerSection === 'staff'
@@ -76,8 +80,11 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
               ? <CommissionRulesManagement csrfToken={csrfToken} onRevalidateSession={onRevalidateSession} />
               : ownerSection === 'catalog'
                 ? <CatalogManagement csrfToken={csrfToken} onRevalidateSession={onRevalidateSession} />
-                : <SalesRecording user={user} csrfToken={csrfToken} onRevalidateSession={onRevalidateSession}
-                    pendingSale={pendingSale} />}
+                : ownerSection === 'sales'
+                  ? <SalesRecording user={user} csrfToken={csrfToken} onRevalidateSession={onRevalidateSession}
+                      pendingSale={pendingSale} />
+                  : <TransactionHistory user={user} csrfToken={csrfToken}
+                      onRevalidateSession={onRevalidateSession} />}
         </main>
       </div>
     )
@@ -105,9 +112,19 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
         </button>
       </div>
     </div></header>
-    <main className="owner-main">{error && <p className="owner-message" role="alert">{error}</p>}
-      <SalesRecording user={user} csrfToken={csrfToken} onRevalidateSession={onRevalidateSession}
-        pendingSale={pendingSale} />
+    <main className="owner-main">
+      <nav className="owner-sections" aria-label="Cashier sections">
+        <button type="button" aria-pressed={cashierSection === 'sales'}
+          onClick={() => setCashierSection('sales')}>Sales</button>
+        <button type="button" aria-pressed={cashierSection === 'history'}
+          onClick={() => setCashierSection('history')}>History</button>
+      </nav>
+      {error && <p className="owner-message" role="alert">{error}</p>}
+      {cashierSection === 'sales'
+        ? <SalesRecording user={user} csrfToken={csrfToken} onRevalidateSession={onRevalidateSession}
+            pendingSale={pendingSale} />
+        : <TransactionHistory user={user} csrfToken={csrfToken}
+            onRevalidateSession={onRevalidateSession} />}
     </main>
   </div>
 }
