@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import CommissionRulesManagement from '../commissions/CommissionRulesManagement.jsx'
+import CatalogManagement from '../catalog/CatalogManagement.jsx'
 import StaffManagement from '../staff/StaffManagement.jsx'
 
 import './AuthenticatedHome.css'
@@ -60,11 +61,15 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
               onClick={() => setOwnerSection('staff')}>Staff</button>
             <button type="button" aria-pressed={ownerSection === 'commissions'}
               onClick={() => setOwnerSection('commissions')}>Commission Rules</button>
+            <button type="button" aria-pressed={ownerSection === 'catalog'}
+              onClick={() => setOwnerSection('catalog')}>Catalog</button>
           </nav>
           {error && <p className="owner-message" role="alert">{error}</p>}
           {ownerSection === 'staff'
             ? <StaffManagement csrfToken={csrfToken} onRevalidateSession={onRevalidateSession} />
-            : <CommissionRulesManagement csrfToken={csrfToken} onRevalidateSession={onRevalidateSession} />}
+            : ownerSection === 'commissions'
+              ? <CommissionRulesManagement csrfToken={csrfToken} onRevalidateSession={onRevalidateSession} />
+              : <CatalogManagement csrfToken={csrfToken} onRevalidateSession={onRevalidateSession} />}
         </main>
       </div>
     )
