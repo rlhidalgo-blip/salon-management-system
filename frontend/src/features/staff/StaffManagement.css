@@ -31,6 +31,18 @@
   color: var(--text);
 }
 .staff-controls input { width: min(100%, 20rem); }
+.staff-search-field { position: relative; display: block; }
+.staff-search-field svg {
+  position: absolute;
+  top: 50%;
+  left: 0.75rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+.staff-search-field input { padding-left: 2.35rem; }
 .staff-feedback { margin: 0 0 0.85rem; color: var(--muted); }
 .staff-results { overflow: hidden; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--surface); }
 .staff-empty { margin: 0; padding: 1.4rem 1rem; color: var(--muted); }

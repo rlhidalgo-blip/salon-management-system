@@ -168,7 +168,14 @@ export default function StaffManagement({ csrfToken, onRevalidateSession }) {
       }}>Try again</button></div>}
       {state === 'ready' && <>
         <div className="staff-controls">
-          <label>Search by name<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <label>Name
+            <span className="staff-search-field">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" />
+              </svg>
+              <input type="search" placeholder="Search" value={search} onChange={(event) => setSearch(event.target.value)} />
+            </span>
+          </label>
           <label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option>
           </select></label>

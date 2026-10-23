@@ -1,0 +1,56 @@
+.commission-rules {
+  width: min(100%, 72rem);
+  margin: 0 auto;
+  padding: 1.5rem 0 3rem;
+}
+
+.commission-rules h1 {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.6rem, 3vw, 2rem);
+}
+.commission-rules h2 { margin-top: 0; font-family: 'Playfair Display', Georgia, serif; }
+.commission-heading-row, .commission-dialog-actions { display: flex; align-items: end; gap: 1rem; }
+.commission-heading-row { justify-content: space-between; }
+.commission-heading-row p { margin: 0.4rem 0 0; color: var(--muted); }
+.commission-rules button, .commission-rules input, .commission-rules select {
+  min-height: 2.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  font: inherit;
+}
+.commission-rules button { padding: 0.55rem 0.9rem; background: var(--surface); color: var(--text); cursor: pointer; }
+.commission-rules button:disabled { opacity: 0.6; cursor: not-allowed; }
+.commission-rules .commission-primary { background: var(--accent); border-color: var(--accent); color: #2B2723; font-weight: 600; }
+.commission-feedback { margin: 1.25rem 0 0.85rem; color: var(--muted); }
+.commission-results { overflow: hidden; margin-top: 1.25rem; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--surface); }
+.commission-feedback + .commission-results { margin-top: 0; }
+.commission-empty { margin: 0; padding: 1.4rem 1rem; color: var(--muted); }
+.commission-table { width: 100%; border-collapse: collapse; }
+.commission-table th, .commission-table td { padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+.commission-table tr:last-child td { border-bottom: 0; }
+.commission-table th { font-weight: 600; }
+.commission-table td { overflow-wrap: anywhere; }
+.commission-rules dialog {
+  width: min(calc(100% - 2rem), 26rem);
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--background);
+  color: var(--text);
+}
+.commission-rules dialog::backdrop { background: rgba(0, 0, 0, 0.62); }
+.commission-form { display: grid; gap: 0.65rem; }
+.commission-form label { font-weight: 600; }
+.commission-form input, .commission-form select { padding: 0.55rem 0.7rem; background: var(--background); color: var(--text); }
+.commission-rules [role='alert'] { color: var(--error); }
+.commission-dialog-actions { margin-top: 1rem; justify-content: flex-end; flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .commission-heading-row { align-items: start; flex-direction: column; }
+  .commission-table, .commission-table tbody, .commission-table tr, .commission-table td { display: block; width: 100%; }
+  .commission-table thead { display: none; }
+  .commission-table tr { margin: 0.5rem; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.35rem; }
+  .commission-table td { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.45rem; border: 0; }
+  .commission-table td::before { content: attr(data-label); font-weight: 600; }
+}
