@@ -27,6 +27,7 @@ it('restores an Owner session and loads staff without flashing login', async () 
   expect(screen.queryByRole('heading', { name: 'Signed in' })).toBeNull()
   expect(screen.getByRole('heading', { name: 'Staff Management' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Staff' }).getAttribute('aria-pressed')).toBe('true')
+  expect(screen.getByRole('button', { name: 'Catalog' }).getAttribute('aria-pressed')).toBe('false')
   expect(screen.queryByRole('heading', { name: 'Commission Rules' })).toBeNull()
   expect(document.querySelector('.staff-results .staff-table')).toBeTruthy()
   const themeButton = screen.getByRole('button', { name: 'Switch to dark mode' })
@@ -61,6 +62,26 @@ it('switches Owner sections without another authentication check', async () => {
   expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/auth/me')).toHaveLength(1)
 })
 
+it('switches into Catalog and its tabs without another session check', async () => {
+  fetch.mockImplementation((url) => Promise.resolve(response(200,
+    url.endsWith('/me') ? owner
+      : url === '/api/v1/staff' ? [{ id: 1, name: 'Ana', role: 'Barber', active: true }]
+        : url === '/api/v1/services' ? [{ id: 3, name: 'Haircut', current_price: '100.00',
+          allows_variable_price: false, commission_rule_id: 2, active: true }]
+          : url === '/api/v1/products' ? []
+            : [{ id: 2, name: 'Haircut split', type: 'Percentage', value: '50.00', active: true }],
+  )))
+  render(<App />)
+  await screen.findByText('Ana')
+  fireEvent.click(screen.getByRole('button', { name: 'Catalog' }))
+  expect(await screen.findByRole('heading', { name: 'Catalog Management' })).toBeTruthy()
+  expect(screen.getByText('Haircut')).toBeTruthy()
+  expect(screen.queryByText('Staff Management')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Products' }))
+  expect(screen.getByText('No products yet.')).toBeTruthy()
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/auth/me')).toHaveLength(1)
+})
+
 it('revalidates staff 401 and returns to login when the session is invalid', async () => {
   fetch.mockResolvedValueOnce(response(200, owner))
     .mockResolvedValueOnce(response(401))
@@ -73,6 +94,17 @@ it('revalidates staff 401 and returns to login when the session is invalid', asy
   ])
 })
 
+it('revalidates Catalog 401 and returns to login when the session is invalid', async () => {
+  fetch.mockImplementation((url) => Promise.resolve(url.endsWith('/me')
+    ? response(fetch.mock.calls.filter(([path]) => path === '/api/v1/auth/me').length === 1 ? 200 : 401, owner)
+    : url === '/api/v1/staff' ? response(200, []) : response(401)))
+  render(<App />)
+  await screen.findByText('No staff members yet.')
+  fireEvent.click(screen.getByRole('button', { name: 'Catalog' }))
+  expect(await screen.findByRole('button', { name: 'Sign In' })).toBeTruthy()
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/auth/me')).toHaveLength(2)
+})
+
 it('keeps Cashier on the minimal landing screen without staff requests', async () => {
   fetch.mockResolvedValueOnce(response(200, {
     ...owner, user: { ...owner.user, role: 'Cashier' },
@@ -82,6 +114,7 @@ it('keeps Cashier on the minimal landing screen without staff requests', async (
   expect(screen.getByRole('heading', { name: 'Signed in' })).toBeTruthy()
   expect(screen.queryByRole('banner')).toBeNull()
   expect(screen.queryByText('Staff Management')).toBeNull()
+  expect(screen.queryByText('Catalog Management')).toBeNull()
   expect(screen.queryByRole('navigation', { name: 'Owner sections' })).toBeNull()
   expect(fetch).toHaveBeenCalledTimes(1)
 })
