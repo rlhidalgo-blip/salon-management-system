@@ -5,7 +5,7 @@ import StaffManagement from '../staff/StaffManagement.jsx'
 import SalesRecording from '../sales/SalesRecording.jsx'
 import { usePendingSale } from '../sales/usePendingSale.js'
 import TransactionHistory from '../transactions/TransactionHistory.jsx'
-import DailyFinancialSummary from '../reports/DailyFinancialSummary.jsx'
+import ReportsSection from '../reports/ReportsSection.jsx'
 
 import './AuthenticatedHome.css'
 
@@ -89,7 +89,7 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
                   : ownerSection === 'history'
                     ? <TransactionHistory user={user} csrfToken={csrfToken}
                         onRevalidateSession={onRevalidateSession} />
-                    : <DailyFinancialSummary user={user} onRevalidateSession={onRevalidateSession} />}
+                    : <ReportsSection user={user} onRevalidateSession={onRevalidateSession} />}
         </main>
       </div>
     )
@@ -133,7 +133,7 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
         : cashierSection === 'history'
           ? <TransactionHistory user={user} csrfToken={csrfToken}
               onRevalidateSession={onRevalidateSession} />
-          : <DailyFinancialSummary user={user} onRevalidateSession={onRevalidateSession} />}
+          : <ReportsSection user={user} onRevalidateSession={onRevalidateSession} />}
     </main>
   </div>
 }

@@ -1,0 +1,22 @@
+.reports-view-switch {
+  display: flex;
+  gap: 0.4rem;
+  padding-top: 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.reports-view-switch button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.9rem;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.reports-view-switch button[aria-pressed='true'] {
+  border-bottom-color: var(--accent-secondary);
+  font-weight: 600;
+}

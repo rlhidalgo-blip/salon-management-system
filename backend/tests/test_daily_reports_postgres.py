@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_database_url
 from app.modules.catalog.models import Service
 from app.modules.commissions.models import CommissionRule
-from app.modules.reports.service import daily_report
+from app.modules.reports.service import daily_report, monthly_report
 from app.modules.staff.models import Staff
 from app.modules.transactions.models import Transaction, TransactionItem
 from app.modules.users.models import User
@@ -133,3 +133,37 @@ def test_postgres_daily_snapshot_aggregation_and_historical_void(db_case):
     assert after.completed_transaction_count == 0
     assert after.voided_transaction_count == 2
     assert after.staff_commissions == []
+
+
+def test_postgres_monthly_snapshots_attribution_and_original_month_void(db_case):
+    session, business_date, completed_id = db_case
+    month = business_date.strftime("%Y-%m")
+    with session.begin():
+        before = monthly_report(session, month=month)
+    assert before.gross_sales == before.gcash_sales == Decimal("101.00")
+    assert before.cash_sales == before.unassigned_product_sales == Decimal("0.00")
+    assert before.total_staff_commission == Decimal("51.00")
+    assert before.total_business_share == Decimal("50.00")
+    assert before.completed_transaction_count == before.voided_transaction_count == 1
+    assert len(before.staff_performance) == 1
+    assert before.staff_performance[0].attributed_sales == Decimal("101.00")
+    assert before.staff_performance[0].total_staff_commission == Decimal("51.00")
+    assert before.staff_performance[0].current_staff_name.startswith("synthetic-report-")
+    assert before.gross_sales == before.total_staff_commission + before.total_business_share
+    assert before.gross_sales == before.cash_sales + before.gcash_sales
+    assert before.gross_sales == (before.staff_performance[0].attributed_sales
+                                 + before.unassigned_product_sales)
+
+    with session.begin():
+        sale = session.get(Transaction, completed_id)
+        sale.status = "Voided"
+        sale.void_reason = "Synthetic correction"
+        sale.voided_by_user_id = sale.recorded_by_user_id
+        sale.voided_at = datetime.combine(business_date + timedelta(days=1), time(12), tzinfo=MANILA)
+    with session.begin():
+        after = monthly_report(session, month=month)
+    assert after.gross_sales == after.total_staff_commission == after.total_business_share == Decimal("0.00")
+    assert after.unassigned_product_sales == Decimal("0.00")
+    assert after.completed_transaction_count == 0
+    assert after.voided_transaction_count == 2
+    assert after.staff_performance == []
