@@ -64,10 +64,52 @@
 .owner-app {
   --owner-gutter: clamp(1rem, 4vw, 3rem);
   --owner-content-width: 72rem;
+  display: grid;
+  grid-template-columns: 13.5rem minmax(0, 1fr);
   min-height: 100vh;
   min-height: 100svh;
   background: var(--background);
 }
+.owner-content-area { min-width: 0; }
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  height: 100svh;
+  padding: 1rem 0.75rem;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+.app-sidebar-logo { display: block; width: 9rem; height: 3.5rem; margin: 0.1rem auto 1.5rem; object-fit: contain; }
+.app-nav-links { display: grid; gap: 0.2rem; }
+.app-nav-links button {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid transparent;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.app-nav-links button svg { flex: none; width: 1.2rem; height: 1.2rem; }
+.app-nav-links button:hover { background: var(--background); }
+.app-nav-links button[aria-pressed='true'] {
+  border-color: var(--border);
+  border-left: 3px solid var(--accent-secondary);
+  background: var(--background);
+  color: var(--text);
+  font-weight: 600;
+}
+.app-nav-links button:focus-visible, .owner-menu-button:focus-visible, .app-drawer-close:focus-visible,
+.sales-leave-actions button:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 2px; }
 
 .owner-header {
   padding: 0.65rem var(--owner-gutter);
@@ -79,7 +121,7 @@
 .owner-header-inner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 1rem;
 }
 
@@ -118,26 +160,67 @@
 }
 .owner-message { margin: 1rem 0 0; color: var(--error); }
 
-.owner-sections { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 1rem; border-bottom: 1px solid var(--border); }
-.owner-sections button {
-  min-height: 2.75rem;
-  padding: 0.55rem 0.9rem;
-  border: 0;
-  border-bottom: 3px solid transparent;
-  background: transparent;
+.owner-main { padding-block: 1rem 2rem; }
+.owner-mobile-brand { display: flex; align-items: center; gap: 0.25rem; min-width: 0; }
+.owner-menu-button, .app-drawer-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   cursor: pointer;
 }
-.owner-sections button[aria-pressed='true'] { border-bottom-color: var(--accent-secondary); font-weight: 600; }
+.owner-menu-button svg { width: 1.25rem; height: 1.25rem; }
+.app-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(17rem, calc(100vw - 2.5rem));
+  max-width: none;
+  height: 100vh;
+  height: 100svh;
+  max-height: none;
+  margin: 0;
+  padding: 1rem 0.75rem;
+  overflow-y: auto;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.app-drawer::backdrop, .sales-leave-dialog::backdrop { background: rgb(0 0 0 / 0.48); }
+.app-drawer-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.app-drawer-heading .app-sidebar-logo { width: 8rem; margin: 0 0 1rem; }
+.sales-leave-dialog {
+  width: min(26rem, calc(100vw - 2rem));
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--text);
+}
+.sales-leave-dialog h2 { margin: 0 0 0.65rem; font-size: 1.25rem; }
+.sales-leave-dialog p { margin: 0 0 1.25rem; line-height: 1.5; }
+.sales-leave-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; }
+.sales-leave-actions button { min-height: 2.75rem; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); color: var(--text); font: inherit; cursor: pointer; }
+.sales-leave-actions button:last-child { border-color: var(--accent); background: var(--accent); color: #2B2723; font-weight: 600; }
+
+@media (max-width: 1050px) {
+  .owner-app { display: block; }
+  .owner-header-inner { justify-content: space-between; }
+}
 
 @media (max-width: 640px) {
-  .owner-header-inner { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.5rem; }
+  .owner-header-inner { gap: 0.35rem; }
   .owner-header-controls { display: grid; grid-template-columns: 2.75rem auto; grid-template-rows: auto auto; justify-content: end; column-gap: 0.4rem; row-gap: 0.1rem; min-width: 0; }
   .owner-role { grid-column: 1 / -1; grid-row: 2; justify-self: end; }
   .owner-theme-toggle { grid-column: 1; grid-row: 1; }
   .owner-logout { grid-column: 2; grid-row: 1; }
-  .owner-logo { width: 6.5rem; height: 2.5rem; }
+  .owner-logo { width: clamp(4.5rem, 20vw, 6.5rem); height: 2.5rem; }
 }
 
 .session-check {

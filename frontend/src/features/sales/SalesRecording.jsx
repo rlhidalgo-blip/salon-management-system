@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { getSalesOptions } from './salesApi.js'
 import ManualEntryForm from './ManualEntryForm.jsx'
@@ -19,7 +19,7 @@ function priceCents(raw) {
   return cents > 0n ? cents : null
 }
 
-export default function SalesRecording({ user, csrfToken, onRevalidateSession, pendingSale }) {
+export default function SalesRecording({ user, csrfToken, onRevalidateSession, pendingSale, onDraftChange }) {
   const [mode, setMode] = useState('direct')
   const [manualVisited, setManualVisited] = useState(false)
   const [manualReset, setManualReset] = useState(0)
@@ -33,6 +33,7 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
   const [payment, setPayment] = useState('Cash')
   const [reference, setReference] = useState('')
   const [review, setReview] = useState(null)
+  const [manualDraft, setManualDraft] = useState(false)
   const [formError, setFormError] = useState('')
   const nextLine = useRef(0)
   const submitting = useRef(false)
@@ -55,6 +56,12 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
   }, [reload, onRevalidateSession])
 
   const locked = pendingSale.blocked || Boolean(pendingSale.pending) || pendingSale.working
+  const confirmed = !pendingSale.pending && Boolean(pendingSale.sale)
+  const directDraft = items.length > 0 || payment !== 'Cash' || reference.trim() !== '' || Boolean(review)
+  const hasUnsentDraft = confirmed
+    ? (submittedMode === 'direct' ? manualDraft : directDraft)
+    : directDraft || manualDraft
+  useLayoutEffect(() => { onDraftChange?.(hasUnsentDraft) }, [hasUnsentDraft, onDraftChange])
   const sameUser = pendingSale.pending?.userId === user.id
   const choices = kind === 'service' ? options?.services ?? [] : options?.products ?? []
   const visibleChoices = choices.filter((item) => item.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
@@ -131,7 +138,6 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
     }
   }
 
-  const confirmed = !pendingSale.pending && Boolean(pendingSale.sale)
   if (mode === 'direct' && !confirmed && loadState === 'loading' && !manualVisited) {
     return <section className="sales-recording"><p role="status">Loading sales options…</p></section>
   }
@@ -256,7 +262,7 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
     </div>}
     </>}
     {manualVisited && <div hidden={mode !== 'manual' || confirmed}>
-      <ManualEntryForm user={user} disabled={locked} resetToken={manualReset}
+      <ManualEntryForm user={user} disabled={locked} resetToken={manualReset} onDraftChange={setManualDraft}
         onSubmit={confirmManual} onRevalidateSession={onRevalidateSession} />
     </div>}
   </section>

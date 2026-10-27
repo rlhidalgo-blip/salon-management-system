@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { getManualSalesOptions } from './salesApi.js'
 
@@ -26,13 +26,16 @@ function paperDate(reference) {
 const blank = () => ({ occurrence: '', reference: '', items: [], payment: 'Cash',
   gcashReference: '', verified: false, kind: 'service', review: null, error: '' })
 
-export default function ManualEntryForm({ user, disabled, active, resetToken, onSubmit, onRevalidateSession }) {
+export default function ManualEntryForm({ user, disabled, active, resetToken, onSubmit, onRevalidateSession, onDraftChange }) {
   const [options, setOptions] = useState(null)
   const [loadState, setLoadState] = useState('loading')
   const [reload, setReload] = useState(0)
   const [draft, setDraft] = useState(blank)
   const nextLine = useRef(0)
   const submitting = useRef(false)
+  const hasDraft = Boolean(draft.occurrence || draft.reference.trim() || draft.items.length ||
+    draft.payment !== 'Cash' || draft.gcashReference.trim() || draft.verified || draft.review)
+  useLayoutEffect(() => { onDraftChange?.(hasDraft) }, [hasDraft, onDraftChange])
 
   useEffect(() => {
     const controller = new AbortController()

@@ -76,11 +76,45 @@ function fillManualService() {
 beforeEach(() => {
   window.localStorage.clear()
   window.sessionStorage.clear()
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
   vi.stubGlobal('crypto', { randomUUID: () => KEY })
   vi.stubGlobal('fetch', vi.fn())
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('warns before leaving an unsent Direct draft; cancel preserves it and confirmation discards it', async () => {
+  setup(cashier, (url) => url.startsWith('/api/v1/transactions?')
+    ? reply(200, { items: [], next_cursor: null }) : reply(200, { status: 'committed', sale }))
+  await ready()
+  add('Cut')
+  fireEvent.click(screen.getByRole('button', { name: 'History' }))
+  const prompt = screen.getByRole('dialog', { name: 'Leave Sales?' })
+  expect(screen.queryByRole('heading', { name: 'Transaction History' })).toBeNull()
+  fireEvent.click(within(prompt).getByRole('button', { name: 'Keep draft' }))
+  expect(screen.getByText('1. Cut')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'History' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Leave Sales?' }))
+    .getByRole('button', { name: 'Discard draft and leave' }))
+  expect(await screen.findByRole('heading', { name: 'Transaction History' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Sales' }))
+  expect(await screen.findByText('No items added yet.')).toBeTruthy()
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+})
+
+it('warns before leaving an unsent Manual draft without persisting it', async () => {
+  setup(cashier, (url) => url.endsWith('/sales/manual-options') ? reply(200, manualOptions)
+    : reply(200, { items: [], next_cursor: null }))
+  await ready()
+  await manualReady()
+  fireEvent.change(screen.getByLabelText('Paper reference'), { target: { value: 'PAPER-20261023-001' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Reports' }))
+  expect(screen.getByRole('dialog', { name: 'Leave Sales?' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Keep draft' }))
+  expect(screen.getByLabelText('Paper reference').value).toBe('PAPER-20261023-001')
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeNull()
+})
 
 it('preserves Direct and Manual unsent drafts independently across mode switches', async () => {
   setup(cashier, (url) => url.endsWith('/sales/manual-options') ? reply(200, manualOptions)
@@ -321,7 +355,7 @@ it('restores a committed pending sale after /me without another POST', async () 
   expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
 })
 
-it('keeps an unresolved payload across Owner section switches', async () => {
+it('blocks Owner section switches while a submitted sale is unresolved', async () => {
   setup(owner, (url) => url === '/api/v1/transactions'
     ? Promise.reject(new Error('offline')) : reply(200, { status: 'not_committed_at_check', sale: null }))
   await ready(owner)
@@ -330,10 +364,10 @@ it('keeps an unresolved payload across Owner section switches', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
   await screen.findByRole('button', { name: 'Retry exact sale' })
   fireEvent.click(screen.getByRole('button', { name: 'Staff' }))
-  await screen.findByRole('heading', { name: 'Staff Management' })
-  fireEvent.click(screen.getByRole('button', { name: 'Sales' }))
-  expect(await screen.findByRole('button', { name: 'Retry exact sale' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Review sale' }).disabled).toBe(true)
+  expect(screen.queryByRole('heading', { name: 'Staff Management' })).toBeNull()
+  expect(screen.getByText('Resolve the pending sale before leaving Sales.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Retry exact sale' })).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeTruthy()
 })
 
 it.each([401, 403, 409, 422])('keeps pending after POST %i without claiming success', async (status) => {

@@ -14,6 +14,42 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
+it('opens the mobile Cashier drawer, restores focus on Escape, and closes after navigation', async () => {
+  matchMedia.mockImplementation((query) => ({ matches: query.includes('1050px'), addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  const cashier = { ...owner, user: { ...owner.user, role: 'Cashier' } }
+  fetch.mockImplementation((url) => Promise.resolve(response(200,
+    url.endsWith('/me') ? cashier : url.endsWith('/sales/options')
+      ? { staff: [], services: [], products: [] } : { items: [], next_cursor: null })))
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Sales Recording' })
+  const menu = screen.getByRole('button', { name: 'Open menu' })
+  expect(screen.queryByRole('button', { name: 'Staff' })).toBeNull()
+  fireEvent.click(menu)
+  const drawer = screen.getByRole('dialog', { name: 'Application navigation' })
+  expect(document.activeElement).toBe(within(drawer).getByRole('button', { name: 'Close menu' }))
+  fireEvent(drawer, new Event('cancel', { bubbles: true, cancelable: true }))
+  expect(screen.queryByRole('dialog', { name: 'Application navigation' })).toBeNull()
+  expect(document.activeElement).toBe(menu)
+  fireEvent.click(menu)
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Application navigation' }))
+    .getByRole('button', { name: 'History' }))
+  expect(await screen.findByRole('heading', { name: 'Transaction History' })).toBeTruthy()
+  expect(screen.queryByRole('dialog', { name: 'Application navigation' })).toBeNull()
+  expect(fetch.mock.calls.filter(([url]) => url.endsWith('/me'))).toHaveLength(1)
+})
+
+it.each([[1024, true], [1280, false]])('uses the appropriate shell at %ipx', async (width, drawer) => {
+  matchMedia.mockImplementation((query) => ({ matches: query.includes('1050px') && width <= 1050,
+    addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  fetch.mockImplementation((url) => Promise.resolve(response(200, url.endsWith('/me') ? owner : [])))
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Staff Management' })
+  expect(Boolean(screen.queryByRole('button', { name: 'Open menu' }))).toBe(drawer)
+  expect(Boolean(screen.queryByRole('complementary', { name: 'Application sidebar' }))).toBe(!drawer)
+})
+
 it('restores an Owner session and loads staff without flashing login', async () => {
   fetch.mockImplementation((url) => Promise.resolve(url.endsWith('/me')
     ? response(200, owner) : response(200, [{ id: 1, name: 'Ana', role: 'Barber', active: true }])))
@@ -234,6 +270,9 @@ it.each([320, 360, 390].flatMap((width) => ['Owner', 'Cashier'].map((role) => [w
   'keeps header, theme, logout, and Reports controls functional at %ipx for %s', async (width, role) => {
     const priorWidth = window.innerWidth
     window.innerWidth = width
+    matchMedia.mockImplementation((query) => ({ matches: query.includes('1050px'), addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
     try {
       const account = { ...owner, user: { ...owner.user, role } }
       fetch.mockImplementation((url) => Promise.resolve(url.endsWith('/me') ? response(200, account)
@@ -254,7 +293,9 @@ it.each([320, 360, 390].flatMap((width) => ['Owner', 'Cashier'].map((role) => [w
       expect(document.documentElement.dataset.theme).toBe('dark')
       fireEvent.click(toggle)
       expect(document.documentElement.dataset.theme).toBe('light')
-      fireEvent.click(screen.getByRole('button', { name: 'Reports' }))
+      fireEvent.click(within(header).getByRole('button', { name: 'Open menu' }))
+      fireEvent.click(within(screen.getByRole('dialog', { name: 'Application navigation' }))
+        .getByRole('button', { name: 'Reports' }))
       const refresh = await screen.findByRole('button', { name: 'Refresh report' })
       await waitFor(() => expect(refresh.disabled).toBe(false))
       fireEvent.click(refresh)
