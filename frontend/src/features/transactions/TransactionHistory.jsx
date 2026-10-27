@@ -297,6 +297,13 @@ export default function TransactionHistory({ user, csrfToken, onRevalidateSessio
           <div><dt>Payment method</dt><dd>{currentDetail.record.payment_method}</dd></div>
           {currentDetail.record.payment_method === 'GCash' &&
             <div><dt>GCash reference</dt><dd>{currentDetail.record.gcash_reference}</dd></div>}
+          {owner && <>
+            <div><dt>Entry source</dt><dd>{currentDetail.record.entry_source}</dd></div>
+            {currentDetail.record.entry_source === 'Manual' && <>
+              <div><dt>Paper reference</dt><dd>{currentDetail.record.manual_reference}</dd></div>
+              <div><dt>Entry time</dt><dd>{time(currentDetail.record.created_at)}</dd></div>
+            </>}
+          </>}
           {owner && currentDetail.record.status === 'Voided' && <>
             <div><dt>Void reason</dt><dd>{currentDetail.record.void_reason}</dd></div>
             <div><dt>Voided by</dt><dd>User #{currentDetail.record.voided_by_user_id}</dd></div>

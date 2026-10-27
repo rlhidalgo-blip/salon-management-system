@@ -11,6 +11,8 @@ const options = { staff: [{ id: 4, name: 'Ana', role: 'Stylist' }],
   services: [{ id: 5, name: 'Cut', current_price: '101.00', allows_variable_price: false },
     { id: 6, name: 'Color', current_price: '120.00', allows_variable_price: true }],
   products: [{ id: 7, name: 'Oil', current_price: '80.25' }] }
+const manualOptions = { staff: [{ id: 4, name: 'Ana', role: 'Stylist', active: false }],
+  services: [{ id: 5, name: 'Cut', active: false }], products: [{ id: 7, name: 'Oil', active: true }] }
 const sale = { id: 11, payment_method: 'Cash', gross_sales: '181.25',
   total_staff_commission: '51.00', total_business_share: '130.25' }
 const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body })
@@ -46,6 +48,31 @@ function add(name, kind = 'service') {
   fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Add ${name},`) }))
 }
 
+function manilaMinute() {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit',
+    day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .format(new Date(Date.now() - 60_000)).replace(' ', 'T')
+}
+
+async function manualReady() {
+  fireEvent.click(screen.getByRole('button', { name: 'Manual Entry' }))
+  await screen.findByRole('button', { name: 'Add Cut, Inactive now' })
+}
+
+function fillManualService() {
+  const occurrence = manilaMinute()
+  fireEvent.change(screen.getByLabelText('Original Manila date and time'), { target: { value: occurrence } })
+  fireEvent.change(screen.getByLabelText('Paper reference'), { target: {
+    value: ` paper-${occurrence.slice(0, 10).replaceAll('-', '')}-001 `,
+  } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add Cut, Inactive now' }))
+  fireEvent.change(screen.getByLabelText('Credited Staff'), { target: { value: '4' } })
+  fireEvent.change(screen.getByLabelText('Original item name'), { target: { value: 'Old Cut' } })
+  fireEvent.change(screen.getByLabelText('Actual selling price'), { target: { value: '101.00' } })
+  fireEvent.change(screen.getByLabelText('Historical commission value'), { target: { value: '50.00' } })
+  fireEvent.click(screen.getByLabelText(/I verified the original paper record/i))
+}
+
 beforeEach(() => {
   window.localStorage.clear()
   window.sessionStorage.clear()
@@ -54,6 +81,91 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn())
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('preserves Direct and Manual unsent drafts independently across mode switches', async () => {
+  setup(cashier, (url) => url.endsWith('/sales/manual-options') ? reply(200, manualOptions)
+    : reply(200, { status: 'not_committed_at_check', sale: null }))
+  await ready()
+  add('Cut')
+  await manualReady()
+  fireEvent.change(screen.getByLabelText('Paper reference'), { target: { value: 'PAPER-20261023-001' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Direct Sale' }))
+  expect(screen.getByText('1. Cut')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Manual Entry' }))
+  expect(screen.getByLabelText('Paper reference').value).toBe('PAPER-20261023-001')
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions/manual')).toBe(false)
+})
+
+it('submits Manual to its original endpoint and uses the shared unresolved guard for exact retry', async () => {
+  const posts = []
+  setup(cashier, (url) => {
+    if (url.endsWith('/sales/manual-options')) return reply(200, manualOptions)
+    if (url === '/api/v1/transactions/manual') { posts.push(url); return reply(503, {}) }
+    return reply(200, { status: 'not_committed_at_check', sale: null })
+  })
+  await ready()
+  await manualReady()
+  fillManualService()
+  fireEvent.click(screen.getByRole('button', { name: 'Review Manual sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Manual sale' }))
+  await screen.findByText(/sale outcome is uncertain/i)
+  expect(screen.getByRole('button', { name: 'Direct Sale' }).disabled).toBe(true)
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+  fireEvent.click(screen.getByRole('button', { name: 'Retry exact sale' }))
+  await waitFor(() => expect(posts).toHaveLength(2))
+  const attempts = fetch.mock.calls.filter(([url]) => url === '/api/v1/transactions/manual')
+  expect(attempts[0][1].body).toBe(attempts[1][1].body)
+  expect(attempts[0][1].headers['Idempotency-Key']).toBe(attempts[1][1].headers['Idempotency-Key'])
+  expect(attempts[0][1].headers['X-CSRF-Token']).toBe('synthetic-csrf')
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+})
+
+it.each([200, 201])('confirms Manual POST %i with backend totals, then clears only its draft', async (status) => {
+  setup(cashier, (url) => url.endsWith('/sales/manual-options') ? reply(200, manualOptions)
+    : url === '/api/v1/transactions/manual' ? reply(status, sale)
+      : reply(200, { status: 'committed', sale }))
+  await ready()
+  add('Cut')
+  await manualReady()
+  fillManualService()
+  fireEvent.click(screen.getByRole('button', { name: 'Review Manual sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Manual sale' }))
+  expect(await screen.findByText('Sale Confirmed')).toBeTruthy()
+  expect(screen.getByText('Staff Commission').nextElementSibling.textContent).toBe('₱51.00')
+  expect(screen.getByText('Business Share').nextElementSibling.textContent).toBe('₱130.25')
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'New Sale' }))
+  expect(screen.getByLabelText('Paper reference').value).toBe('')
+  expect(screen.getByText('No items added yet.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Direct Sale' }))
+  expect(screen.getByText('1. Cut')).toBeTruthy()
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/transactions/manual')).toHaveLength(1)
+})
+
+it('blocks both entry modes after reload with an unresolved pending key', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  setup(cashier, (url) => reply(202, { status: 'processing', sale: null }))
+  await ready()
+  expect(screen.getByRole('button', { name: 'Manual Entry' }).disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: 'Retry exact sale' })).toBeNull()
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions/manual')).toBe(false)
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeTruthy()
+})
+
+it.each([403, 409, 422])('keeps a Manual attempt unresolved after POST %i', async (status) => {
+  setup(cashier, (url) => url.endsWith('/sales/manual-options') ? reply(200, manualOptions)
+    : url === '/api/v1/transactions/manual' ? reply(status, {})
+      : reply(200, { status: 'not_committed_at_check', sale: null }))
+  await ready()
+  await manualReady()
+  fillManualService()
+  fireEvent.click(screen.getByRole('button', { name: 'Review Manual sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Manual sale' }))
+  await screen.findByRole('button', { name: 'Retry exact sale' })
+  expect(screen.getByRole('button', { name: 'Direct Sale' }).disabled).toBe(true)
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'New Sale' })).toBeNull()
+})
 
 it('shows Owner Sales section without reauth and keeps management sections', async () => {
   setup(owner)

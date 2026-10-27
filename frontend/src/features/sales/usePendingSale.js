@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { createSale, getSaleStatus } from './salesApi.js'
+import { createManualSale, createSale, getSaleStatus } from './salesApi.js'
 
 const STORAGE_KEY = 'yabs-pending-sale'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -77,8 +77,9 @@ export function usePendingSale(user, onRevalidateSession) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function submit(payload, csrfToken) {
+  async function submit(payload, csrfToken, mode = 'direct') {
     if (busy.current || blocked || current.current) return false
+    if (mode !== 'direct' && mode !== 'manual') return false
     busy.current = true
     setWorking(true)
     setError('')
@@ -95,7 +96,7 @@ export function usePendingSale(user, onRevalidateSession) {
       busy.current = false
       return false
     }
-    const attempt = { ...saved, payload }
+    const attempt = { ...saved, payload, mode }
     current.current = attempt
     setPending(attempt)
     setStatus('unresolved')
@@ -105,7 +106,8 @@ export function usePendingSale(user, onRevalidateSession) {
 
   async function send(attempt, csrfToken) {
     try {
-      const result = await createSale(attempt.payload, attempt.key, csrfToken)
+      const result = await (attempt.mode === 'manual' ? createManualSale : createSale)(
+        attempt.payload, attempt.key, csrfToken)
       await check(attempt.key)
       // POST success is committed, but keep pending if status lookup cannot confirm it.
       return result

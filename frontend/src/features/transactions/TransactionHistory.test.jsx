@@ -69,8 +69,22 @@ it('limits Cashier UI to today and shows authorized financial snapshots and GCas
   expect(screen.getByText('Credited Staff: Ana (current name)')).toBeTruthy()
   expect(screen.getByText('Percentage · 50.00%')).toBeTruthy()
   expect(screen.getByText('synthetic-gcash-ref')).toBeTruthy()
+  expect(screen.queryByText('Entry source')).toBeNull()
+  expect(screen.queryByText('Paper reference')).toBeNull()
   expect(screen.queryByText('Void reason')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Void transaction' })).toBeNull()
+})
+
+it('shows Manual paper provenance and entry time to Owner only', async () => {
+  const manual = { ...detail, entry_source: 'Manual', manual_reference: 'PAPER-20261023-001',
+    created_at: '2026-10-24T02:30:00+00:00' }
+  setup(owner, (url) => url.includes('?') ? reply(200, page()) : reply(200, manual))
+  await screen.findByRole('table')
+  fireEvent.click(screen.getByRole('button', { name: 'View transaction #7' }))
+  await screen.findByRole('heading', { name: 'Transaction #7' })
+  expect(screen.getByText('Entry source').nextElementSibling.textContent).toBe('Manual')
+  expect(screen.getByText('Paper reference').nextElementSibling.textContent).toBe('PAPER-20261023-001')
+  expect(screen.getByText('Entry time').nextElementSibling.textContent).toMatch(/Oct 24, 2026/)
 })
 
 it('uses bounded cursors, supports Back, and resets the page on a date change', async () => {

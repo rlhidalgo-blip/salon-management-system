@@ -26,8 +26,20 @@ export function getSalesOptions(signal) {
   return request('/sales/options', { signal })
 }
 
+export function getManualSalesOptions(signal) {
+  return request('/sales/manual-options', { signal })
+}
+
 export function createSale(payload, key, csrfToken) {
   return request('/transactions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key, 'X-CSRF-Token': csrfToken },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function createManualSale(payload, key, csrfToken) {
+  return request('/transactions/manual', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key, 'X-CSRF-Token': csrfToken },
     body: JSON.stringify(payload),
