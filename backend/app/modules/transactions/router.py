@@ -8,17 +8,57 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ApiError
 from app.db.session import get_db_session
-from app.modules.auth.dependencies import Principal, require_owner_or_cashier
+from app.modules.auth.dependencies import Principal, require_owner, require_owner_or_cashier
 from app.modules.transactions.history_schemas import VoidRequest
 from app.modules.transactions.history_service import (
     get_history_detail, list_history, record_rejected_void, void_transaction,
 )
 from app.modules.transactions.manual_service import record_manual_sale
-from app.modules.transactions.schemas import ManualSaleCreate, SaleCreate, SalePublic, SaleKeyStatus
+from app.modules.transactions.reconciliation_service import (
+    acknowledge_sale, investigate_sale, reject_acknowledgment,
+)
+from app.modules.transactions.schemas import ManualSaleCreate, SaleCreate, SalePublic, SaleKeyStatus, SaleAcknowledgment
 from app.modules.transactions.service import lookup_sale_key, record_direct_sale
 
 
 router = APIRouter(prefix="/api/v1/transactions", tags=["transactions"])
+
+
+@router.get("/reconciliation/{recording_user_id}/{idempotency_key}", response_model=SaleKeyStatus)
+def get_owner_sale_status(response: Response, recording_user_id: int = Path(gt=0),
+                          idempotency_key: UUID = Path(),
+                          principal: Principal = Depends(require_owner),
+                          session: Session = Depends(get_db_session)):
+    response.headers["Cache-Control"] = "no-store"
+    with session.begin():
+        status, sale = investigate_sale(session, recording_user_id=recording_user_id,
+                                        key=idempotency_key)
+    if status == "processing":
+        response.status_code = 202
+    return SaleKeyStatus(status=status, sale=sale)
+
+
+@router.post("/reconciliation/{recording_user_id}/{idempotency_key}/acknowledge",
+             response_model=SaleAcknowledgment)
+def post_owner_sale_acknowledgment(response: Response, recording_user_id: int = Path(gt=0),
+                                   idempotency_key: UUID = Path(),
+                                   principal: Principal = Depends(require_owner_or_cashier),
+                                   session: Session = Depends(get_db_session)):
+    response.headers["Cache-Control"] = "no-store"
+    with session.begin():
+        if principal.role != "Owner":
+            reject_acknowledgment(session, actor_user_id=principal.user_id,
+                                  recording_user_id=recording_user_id, key=idempotency_key)
+            result, error = None, ApiError(403, "forbidden", "Insufficient permissions")
+        else:
+            result, error = acknowledge_sale(session, actor_user_id=principal.user_id,
+                                             recording_user_id=recording_user_id,
+                                             key=idempotency_key)
+    if error is not None:
+        raise error
+    # Repeated explicit acknowledgments return the same sale, with one new audit per action.
+    return {"status": "committed", "recording_user_id": recording_user_id,
+            "idempotency_key": str(idempotency_key), "sale": result}
 
 
 @router.get("", response_model=None)

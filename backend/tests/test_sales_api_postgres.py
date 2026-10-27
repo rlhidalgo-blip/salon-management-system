@@ -197,6 +197,60 @@ def test_real_constraints_auth_idempotency_and_rollback(db_api):
         TransactionItem.transaction_id == transaction_id).limit(1)) == marker + "-service"
 
 
+def test_owner_reconciliation_auth_csrf_and_audit(db_api):
+    connection, client, marker = db_api
+    password, owner_id, staff_id, _rule_id, service_id = _seed(connection, marker)
+    cashier_id = connection.execute(insert(User).values(
+        username=marker + "-cashier", password_hash=hash_password(password), role="Cashier", active=True,
+    ).returning(User.id)).scalar_one()
+    key = str(uuid4())
+    url = f"/api/v1/transactions/reconciliation/{cashier_id}/{key}"
+    assert TestClient(app, base_url=ORIGIN).get(url).status_code == 401
+    assert TestClient(app, base_url=ORIGIN).post(url + "/acknowledge",
+                                                  headers={"Origin": ORIGIN}).status_code == 401
+    cashier_login = client.post("/api/v1/auth/login",
+                                json={"username": marker + "-cashier", "password": password},
+                                headers={"Origin": ORIGIN})
+    assert cashier_login.status_code == 200
+    sale = client.post("/api/v1/transactions",
+                       json={"payment_method": "Cash", "items": [
+                           {"service_id": service_id, "staff_id": staff_id, "selling_price": "101.00"}]},
+                       headers={"Origin": ORIGIN, "X-CSRF-Token": cashier_login.json()["csrf_token"],
+                                "Idempotency-Key": key})
+    assert sale.status_code == 201, sale.json()
+    assert client.get(url).status_code == 403
+    assert client.post(url + "/acknowledge", headers={"Origin": ORIGIN,
+                       "X-CSRF-Token": cashier_login.json()["csrf_token"]}).status_code == 403
+    owner_login = client.post("/api/v1/auth/login",
+                              json={"username": marker + "-owner", "password": password},
+                              headers={"Origin": ORIGIN})
+    assert owner_login.status_code == 200
+    found = client.get(url)
+    assert found.status_code == 200 and found.headers["cache-control"] == "no-store"
+    assert found.json()["status"] == "committed" and found.json()["sale"]["id"] == sale.json()["id"]
+    assert client.get(f"/api/v1/transactions/reconciliation/{cashier_id}/invalid").status_code == 422
+    before = connection.scalar(select(func.count()).select_from(AuditEvent).where(
+        AuditEvent.event_type == "SaleReconciliationAcknowledged"))
+    assert client.post(url + "/acknowledge", headers={"Origin": ORIGIN}).status_code == 403
+    assert connection.scalar(select(func.count()).select_from(AuditEvent).where(
+        AuditEvent.event_type == "SaleReconciliationAcknowledged")) == before
+    headers = {"Origin": ORIGIN, "X-CSRF-Token": owner_login.json()["csrf_token"]}
+    for _ in range(2):
+        acknowledged = client.post(url + "/acknowledge", headers=headers)
+        assert acknowledged.status_code == 200 and acknowledged.json()["sale"]["id"] == sale.json()["id"]
+    missing = f"/api/v1/transactions/reconciliation/{cashier_id}/{uuid4()}"
+    assert client.get(missing).json() == {"status": "not_committed_at_check", "sale": None}
+    assert client.post(missing + "/acknowledge", headers=headers).status_code == 409
+    audits = list(connection.execute(select(AuditEvent.outcome, AuditEvent.actor_user_id).where(
+        AuditEvent.event_type == "SaleReconciliationAcknowledged").order_by(AuditEvent.id)))
+    assert [audit.outcome for audit in audits] == ["Failure", "Success", "Success", "Failure"]
+    assert all(audit.actor_user_id in (owner_id, cashier_id) for audit in audits)
+    assert connection.scalar(select(func.count()).select_from(Transaction).where(
+        Transaction.id == sale.json()["id"])) == 1
+    assert connection.scalar(select(func.count()).select_from(SaleIdempotency).where(
+        SaleIdempotency.user_id == cashier_id, SaleIdempotency.idempotency_key == key)) == 1
+
+
 def _free_paper_reference(connection, business_date):
     for number in range(1, 1000):
         candidate = f"PAPER-{business_date:%Y%m%d}-{number:03d}"

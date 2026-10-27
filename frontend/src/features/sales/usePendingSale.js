@@ -157,5 +157,30 @@ export function usePendingSale(user, onRevalidateSession) {
     return true
   }
 
-  return { pending, blocked, status, sale, error, working, submit, retry, check, startNewSale }
+  function clearAcknowledged(acknowledgment) {
+    if (user.role !== 'Owner' || acknowledgment?.status !== 'committed' ||
+        acknowledgment.sale?.recorded_by_user_id !== acknowledgment.recording_user_id ||
+        !Number.isSafeInteger(acknowledgment.sale?.id) ||
+        !UUID.test(acknowledgment.idempotency_key ?? '') || busy.current || working || blocked) return 'blocked'
+    const expected = { key: acknowledgment.idempotency_key, userId: acknowledgment.recording_user_id }
+    if (current.current?.key !== expected.key || current.current?.userId !== expected.userId) return 'no_match'
+    try {
+      if (sessionStorage.getItem(STORAGE_KEY) !== JSON.stringify(expected)) throw new Error()
+      sessionStorage.removeItem(STORAGE_KEY)
+      if (sessionStorage.getItem(STORAGE_KEY) !== null) throw new Error()
+    } catch {
+      setBlocked(true)
+      setError('Acknowledged sale, but the matching browser pending identifier could not be cleared safely.')
+      return 'blocked'
+    }
+    current.current = null
+    setPending(null)
+    setStatus('idle')
+    setError('')
+    setSale(null)
+    return 'cleared'
+  }
+
+  return { pending, blocked, status, sale, error, working, submit, retry, check, startNewSale,
+    clearAcknowledged }
 }

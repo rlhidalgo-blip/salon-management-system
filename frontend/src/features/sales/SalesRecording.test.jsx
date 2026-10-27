@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import App from '../../app/App.jsx'
+import OwnerSaleReconciliation from './OwnerSaleReconciliation.jsx'
 
 const KEY = 'd80be84d-a9d2-46a3-a05e-8a583a04ad0f'
 const owner = { user: { id: 1, username: 'synthetic_owner', role: 'Owner' }, csrf_token: 'synthetic-csrf' }
@@ -83,6 +84,132 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn())
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('requires fresh Owner acknowledgment before clearing an exact cross-user pending identifier', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  const committed = { ...sale, recorded_by_user_id: 2, status: 'Completed' }
+  const url = `/api/v1/transactions/reconciliation/2/${KEY}`
+  fetch.mockImplementation((path) => Promise.resolve(path.endsWith('/me') ? reply(200, owner)
+    : path.endsWith('/staff') ? reply(200, [])
+      : path.endsWith('/sales/options') ? reply(200, options)
+        : path === url ? reply(200, { status: 'committed', sale: committed })
+          : path === url + '/acknowledge' ? reply(200, { status: 'committed',
+            recording_user_id: 2, idempotency_key: KEY, sale: committed }) : reply(404, {})))
+  await ready(owner)
+  expect(screen.getByLabelText('Recording user ID').value).toBe('2')
+  expect(screen.getByLabelText('Exact sale UUID').value).toBe(KEY)
+  fireEvent.click(screen.getByRole('button', { name: 'Check sale' }))
+  expect(await screen.findByText(/Transaction #11 — Completed/)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Acknowledge committed sale' }))
+  const confirmation = screen.getByRole('dialog', { name: 'Acknowledge transaction #11' })
+  expect(within(confirmation).getByText(/matching pending identifier/i)).toBeTruthy()
+  expect(document.activeElement).toBe(within(confirmation).getByRole('button', { name: 'Cancel' }))
+  expect(fetch.mock.calls.some(([path]) => path === url + '/acknowledge')).toBe(false)
+  fireEvent.click(within(confirmation).getByRole('button', { name: 'Confirm acknowledgment' }))
+  expect(await screen.findByText(/Matching pending identifier cleared/i)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeNull()
+  expect(fetch.mock.calls.find(([path]) => path === url + '/acknowledge')[1].headers['X-CSRF-Token']).toBe('synthetic-csrf')
+  expect(fetch.mock.calls.some(([path]) => path === '/api/v1/transactions')).toBe(false)
+})
+
+it('never clears pending for uncertain lookup, failed acknowledgment, or a different key', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  const other = '3f9ab8b9-e91d-4ea1-9f55-096b958a41db'
+  let status = 'processing'
+  fetch.mockImplementation((path) => Promise.resolve(path.endsWith('/me') ? reply(200, owner)
+    : path.endsWith('/staff') ? reply(200, [])
+      : path.endsWith('/sales/options') ? reply(200, options)
+        : path.includes('/reconciliation/') && path.endsWith('/acknowledge')
+          ? (status === 'failed' ? reply(409, {}) : reply(200, { status: 'committed',
+            recording_user_id: 2, idempotency_key: other, sale: { ...sale, recorded_by_user_id: 2 } }))
+          : reply(200, status === 'committed' || status === 'failed'
+            ? { status: 'committed', sale: { ...sale, recorded_by_user_id: 2 } }
+            : { status, sale: null })))
+  await ready(owner)
+  fireEvent.click(screen.getByRole('button', { name: 'Check sale' }))
+  expect(await screen.findByText(/Sale key is processing/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Acknowledge committed sale' })).toBeNull()
+  status = 'not_committed_at_check'
+  fireEvent.click(screen.getByRole('button', { name: 'Check sale' }))
+  expect(await screen.findByText(/A delayed request may still commit/)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeTruthy()
+  status = 'failed'
+  fireEvent.click(screen.getByRole('button', { name: 'Check sale' }))
+  await screen.findByText(/Transaction #11/)
+  fireEvent.click(screen.getByRole('button', { name: 'Acknowledge committed sale' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Acknowledge transaction #11' }))
+    .getByRole('button', { name: 'Confirm acknowledgment' }))
+  expect(await screen.findByText(/Sale is not confirmed committed/)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeTruthy()
+  status = 'committed'
+  fireEvent.change(screen.getByLabelText('Exact sale UUID'), { target: { value: other } })
+  fireEvent.click(screen.getByRole('button', { name: 'Check sale' }))
+  await screen.findByText(/Transaction #11/)
+  fireEvent.click(screen.getByRole('button', { name: 'Acknowledge committed sale' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Acknowledge transaction #11' }))
+    .getByRole('button', { name: 'Confirm acknowledgment' }))
+  expect(await screen.findByText(/No matching pending identifier/i)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeTruthy()
+})
+
+it('cancels with button or Escape and invalidates confirmation when investigation changes', async () => {
+  const url = `/api/v1/transactions/reconciliation/2/${KEY}`
+  const committed = { ...sale, recorded_by_user_id: 2, status: 'Completed' }
+  fetch.mockImplementation((path) => Promise.resolve(path === url
+    ? reply(200, { status: 'committed', sale: committed }) : reply(500, {})))
+  render(<OwnerSaleReconciliation pendingSale={{ pending: { userId: 2, key: KEY }, clearAcknowledged: vi.fn() }}
+    csrfToken="synthetic-csrf" onRevalidateSession={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Check sale' }))
+  await screen.findByText(/Transaction #11/)
+  fireEvent.click(screen.getByRole('button', { name: 'Acknowledge committed sale' }))
+  let prompt = screen.getByRole('dialog', { name: 'Acknowledge transaction #11' })
+  fireEvent.click(within(prompt).getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Acknowledge committed sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Acknowledge committed sale' }))
+  prompt = screen.getByRole('dialog', { name: 'Acknowledge transaction #11' })
+  const escapeCancel = new window.Event('cancel', { cancelable: true })
+  fireEvent(prompt, escapeCancel)
+  expect(escapeCancel.defaultPrevented).toBe(true)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(fetch.mock.calls.some(([path]) => path === url + '/acknowledge')).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Acknowledge committed sale' }))
+  fireEvent.change(screen.getByLabelText('Exact sale UUID'), { target: { value: 'changed' } })
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Acknowledge committed sale' })).toBeNull()
+  expect(fetch.mock.calls.some(([path]) => path === url + '/acknowledge')).toBe(false)
+})
+
+it('sends one acknowledgment while pending and leaves browser state blocked on failure', async () => {
+  const url = `/api/v1/transactions/reconciliation/2/${KEY}`
+  const response = deferred()
+  const clearAcknowledged = vi.fn()
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  fetch.mockImplementation((path) => path === url + '/acknowledge' ? response.promise
+    : Promise.resolve(reply(200, { status: 'committed', sale: { ...sale, recorded_by_user_id: 2 } })))
+  render(<OwnerSaleReconciliation pendingSale={{ pending: { userId: 2, key: KEY }, clearAcknowledged }}
+    csrfToken="synthetic-csrf" onRevalidateSession={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Check sale' }))
+  await screen.findByText(/Transaction #11/)
+  fireEvent.click(screen.getByRole('button', { name: 'Acknowledge committed sale' }))
+  const prompt = screen.getByRole('dialog', { name: 'Acknowledge transaction #11' })
+  const confirm = within(prompt).getByRole('button', { name: 'Confirm acknowledgment' })
+  fireEvent.click(confirm)
+  fireEvent.click(confirm)
+  expect(confirm.disabled).toBe(true)
+  expect(fetch.mock.calls.filter(([path]) => path === url + '/acknowledge')).toHaveLength(1)
+  const escapeCancel = new window.Event('cancel', { cancelable: true })
+  fireEvent(prompt, escapeCancel)
+  expect(escapeCancel.defaultPrevented).toBe(true)
+  expect(screen.getByRole('dialog', { name: 'Acknowledge transaction #11' })).toBeTruthy()
+  response.resolve(reply(409, {}))
+  expect(await screen.findByText(/Sale is not confirmed committed/)).toBeTruthy()
+  expect(clearAcknowledged).not.toHaveBeenCalled()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Acknowledge committed sale' })).toBeNull()
+})
 
 it('warns before leaving an unsent Direct draft; cancel preserves it and confirmation discards it', async () => {
   setup(cashier, (url) => url.startsWith('/api/v1/transactions?')

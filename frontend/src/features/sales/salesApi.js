@@ -49,3 +49,13 @@ export function createManualSale(payload, key, csrfToken) {
 export function getSaleStatus(key) {
   return request(`/transactions/by-idempotency-key/${encodeURIComponent(key)}`)
 }
+
+export function getOwnerSaleStatus(recordingUserId, key) {
+  return request(`/transactions/reconciliation/${recordingUserId}/${encodeURIComponent(key)}`)
+}
+
+export function acknowledgeOwnerSale(recordingUserId, key, csrfToken) {
+  return request(`/transactions/reconciliation/${recordingUserId}/${encodeURIComponent(key)}/acknowledge`, {
+    method: 'POST', headers: { 'X-CSRF-Token': csrfToken },
+  })
+}

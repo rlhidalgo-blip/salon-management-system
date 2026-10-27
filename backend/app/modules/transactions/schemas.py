@@ -159,3 +159,10 @@ class SalePublic(BaseModel):
 class SaleKeyStatus(BaseModel):
     status: Literal["committed", "processing", "not_committed_at_check"]
     sale: SalePublic | None = None
+
+
+class SaleAcknowledgment(BaseModel):
+    status: Literal["committed"]
+    recording_user_id: int
+    idempotency_key: str
+    sale: SalePublic
