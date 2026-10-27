@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { getSalesOptions } from './salesApi.js'
+import ManualEntryForm from './ManualEntryForm.jsx'
 import './SalesRecording.css'
 
 const pricePattern = /^(?:0|[1-9][0-9]{0,9})(?:\.[0-9]{1,2})?$/
@@ -19,6 +20,10 @@ function priceCents(raw) {
 }
 
 export default function SalesRecording({ user, csrfToken, onRevalidateSession, pendingSale }) {
+  const [mode, setMode] = useState('direct')
+  const [manualVisited, setManualVisited] = useState(false)
+  const [manualReset, setManualReset] = useState(0)
+  const [submittedMode, setSubmittedMode] = useState('direct')
   const [options, setOptions] = useState(null)
   const [loadState, setLoadState] = useState('loading')
   const [reload, setReload] = useState(0)
@@ -102,23 +107,36 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
   async function confirm() {
     if (submitting.current || !review || locked) return
     submitting.current = true
-    try { await pendingSale.submit(review.payload, csrfToken) } finally { submitting.current = false }
+    setSubmittedMode('direct')
+    try { await pendingSale.submit(review.payload, csrfToken, 'direct') } finally { submitting.current = false }
+  }
+
+  async function confirmManual(payload) {
+    setSubmittedMode('manual')
+    return pendingSale.submit(payload, csrfToken, 'manual')
   }
 
   function newSale() {
     if (!pendingSale.startNewSale()) return
-    setItems([])
-    setKind('service')
-    setSearch('')
-    setPayment('Cash')
-    setReference('')
-    setReview(null)
-    setFormError('')
-    nextLine.current = 0
+    if (submittedMode === 'manual') setManualReset((old) => old + 1)
+    else {
+      setItems([])
+      setKind('service')
+      setSearch('')
+      setPayment('Cash')
+      setReference('')
+      setReview(null)
+      setFormError('')
+      nextLine.current = 0
+    }
   }
 
-  if (!pendingSale.pending && pendingSale.sale) return <section className="sales-recording" aria-labelledby="sales-confirmed-title">
-    <div className="sales-result" role="status">
+  const confirmed = !pendingSale.pending && Boolean(pendingSale.sale)
+  if (mode === 'direct' && !confirmed && loadState === 'loading' && !manualVisited) {
+    return <section className="sales-recording"><p role="status">Loading sales options…</p></section>
+  }
+  return <section className="sales-recording" aria-labelledby={confirmed ? 'sales-confirmed-title' : 'sales-title'}>
+    {confirmed ? <div className="sales-result" role="status">
       <div className="sales-result-heading">
         <svg className="sales-success-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" />
@@ -135,16 +153,16 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
       {pendingSale.blocked && <p className="sales-error" role="alert">{pendingSale.error}</p>}
       <button className="sales-primary" type="button" disabled={pendingSale.blocked || pendingSale.working}
         onClick={newSale}>New Sale</button>
-    </div>
-  </section>
-
-  if (loadState === 'loading') return <section className="sales-recording"><p role="status">Loading sales options…</p></section>
-  if (loadState === 'error') return <section className="sales-recording"><p role="alert">{formError}</p>
-    <button type="button" onClick={() => { setLoadState('loading'); setReload((old) => old + 1) }}>Try again</button></section>
-
-  return <section className="sales-recording" aria-labelledby="sales-title">
+    </div> : <>
     <div className="sales-heading"><h1 id="sales-title">Sales Recording</h1>
-      <p>Record a completed, current-day sale. Each line is one unit.</p></div>
+      <p>{mode === 'direct' ? 'Record a completed, current-day sale. Each line is one unit.'
+        : 'Enter a paper-verified original sale. Each line is one unit.'}</p></div>
+    <nav className="sales-tabs sales-mode-tabs" aria-label="Sale entry mode">
+      <button type="button" aria-pressed={mode === 'direct'} disabled={locked}
+        onClick={() => setMode('direct')}>Direct Sale</button>
+      <button type="button" aria-pressed={mode === 'manual'} disabled={locked}
+        onClick={() => { setManualVisited(true); setMode('manual') }}>Manual Entry</button>
+    </nav>
     {pendingSale.blocked && <p className="sales-warning" role="alert">Pending sale state cannot be safely read or saved. Do not submit another sale; contact the Owner for reconciliation.</p>}
     {pendingSale.pending && <div className="sales-warning" role="alert">
       <p>{sameUser ? 'A sale is unresolved in this tab. Do not start another sale.'
@@ -158,7 +176,10 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
           onClick={() => pendingSale.retry(csrfToken)}>Retry exact sale</button>}
       </div>}
     </div>}
-    <div className="sales-pos-grid">
+    {mode === 'direct' && loadState === 'loading' && <p role="status">Loading sales options…</p>}
+    {mode === 'direct' && loadState === 'error' && <div><p role="alert">{formError}</p>
+      <button type="button" onClick={() => { setLoadState('loading'); setReload((old) => old + 1) }}>Try again</button></div>}
+    {mode === 'direct' && loadState === 'ready' && <div className="sales-pos-grid">
       <section className="sales-surface sales-selection" aria-labelledby="sales-selection-title">
         <h2 id="sales-selection-title">Select Items</h2>
         <nav className="sales-tabs" aria-label="Sale item types">
@@ -232,6 +253,11 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
           <button className="sales-primary sales-review-button" type="button" disabled={locked} onClick={prepareReview}>Review sale</button>
         </>}
       </section>
-    </div>
+    </div>}
+    </>}
+    {manualVisited && <div hidden={mode !== 'manual' || confirmed}>
+      <ManualEntryForm user={user} disabled={locked} resetToken={manualReset}
+        onSubmit={confirmManual} onRevalidateSession={onRevalidateSession} />
+    </div>}
   </section>
 }

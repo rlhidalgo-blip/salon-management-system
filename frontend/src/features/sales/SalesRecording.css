@@ -70,10 +70,24 @@
 .sales-summary dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 .sales-summary-gross dd { font-size: 1.2rem; color: var(--accent-secondary); }
 .sales-result .sales-primary { width: 100%; }
+.sales-mode-tabs { margin: 0.4rem 0 0.75rem; }
+.sales-manual-note { margin: 0 0 0.75rem; color: var(--muted); }
+.sales-manual-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; margin-bottom: 0.65rem; }
+.sales-manual-fields label { min-width: 0; }
+.sales-manual-attestation { display: flex !important; align-items: start; gap: 0.55rem !important; margin-top: 0.85rem; font-weight: 400 !important; }
+.sales-manual-attestation input { width: 1.2rem; min-width: 1.2rem; min-height: 1.2rem; height: 1.2rem; margin: 0.15rem 0 0; }
+.sales-manual-review { width: min(100%, 40rem); margin-inline: auto; }
+.sales-manual-review-items { list-style: none; padding: 0; margin: 0; }
+.sales-manual-review-items li { padding: 0.55rem 0; border-bottom: 1px solid var(--border); }
+.sales-manual-review-items li > div { display: flex; justify-content: space-between; gap: 0.75rem; }
+.sales-manual-review-items li strong { min-width: 0; overflow-wrap: anywhere; }
+.sales-manual-review-items li span { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sales-manual-review-items li small { display: block; margin-top: 0.2rem; color: var(--muted); overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .sales-pos-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 440px) {
   .sales-line-fields { grid-template-columns: minmax(0, 1fr); }
+  .sales-manual-fields { grid-template-columns: minmax(0, 1fr); }
   .sales-review li, .sales-summary > div { align-items: start; }
 }
