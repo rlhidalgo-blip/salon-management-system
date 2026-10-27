@@ -58,11 +58,15 @@ def api(monkeypatch):
                          Product(id=1, name="Oil", current_price=Decimal("100.25"), commission_rule_id=2)])
     import app.modules.transactions.service as service
     import app.modules.transactions.manual_service as manual_service
+    import app.modules.transactions.reconciliation_service as reconciliation_service
     monkeypatch.setattr(service, "_database_time", lambda _session: datetime(2026, 10, 22, 16, 30, tzinfo=timezone.utc))
     monkeypatch.setattr(service, "lock_sale_key", lambda *_args: None)
     monkeypatch.setattr(service, "try_lock_sale_key", lambda *_args: True)
     monkeypatch.setattr(manual_service, "_database_time", lambda _session: datetime(2026, 10, 22, 16, 30, tzinfo=timezone.utc))
     monkeypatch.setattr(manual_service, "lock_sale_key", lambda *_args: None)
+    monkeypatch.setattr(reconciliation_service, "_database_time",
+                        lambda _session: datetime(2026, 10, 22, 16, 30, tzinfo=timezone.utc))
+    monkeypatch.setattr(reconciliation_service, "try_lock_sale_key", lambda *_args: True)
     app = FastAPI()
     install_error_handlers(app)
     app.include_router(router)
@@ -330,6 +334,90 @@ def _manual_payload():
 def _send_manual(client, payload, key=None):
     return client.post("/api/v1/transactions/manual", json=payload,
                        headers={"Idempotency-Key": str(key or uuid4())})
+
+
+def test_owner_reconciliation_direct_cross_user_and_repeated_audit(api):
+    client, factory, app = api
+    key = uuid4()
+    app.dependency_overrides[get_current_principal] = lambda: Principal(2, "test_cashier", "Cashier", "synthetic")
+    sale = _send(client, _payload(), key)
+    assert sale.status_code == 201
+    url = f"/api/v1/transactions/reconciliation/2/{key}"
+    assert client.get(url).status_code == 403
+    assert client.post(url + "/acknowledge").status_code == 403
+    assert client.get(f"/api/v1/transactions/by-idempotency-key/{key}").json()["status"] == "committed"
+    app.dependency_overrides[get_current_principal] = lambda: Principal(1, "test_owner", "Owner", "synthetic")
+    found = client.get(url)
+    assert found.status_code == 200 and found.headers["cache-control"] == "no-store"
+    assert found.json()["sale"]["id"] == sale.json()["id"]
+    for _ in range(2):
+        acknowledged = client.post(url + "/acknowledge")
+        assert acknowledged.status_code == 200 and acknowledged.headers["cache-control"] == "no-store"
+        assert acknowledged.json()["status"] == "committed"
+        assert acknowledged.json()["recording_user_id"] == 2
+        assert acknowledged.json()["idempotency_key"] == str(key)
+        assert acknowledged.json()["sale"]["id"] == sale.json()["id"]
+        assert acknowledged.json()["sale"]["gross_sales"] == sale.json()["gross_sales"]
+    with factory() as session:
+        events = list(session.scalars(select(AuditEvent).where(
+            AuditEvent.event_type == "SaleReconciliationAcknowledged").order_by(AuditEvent.id)))
+        assert [event.outcome for event in events] == ["Failure", "Success", "Success"]
+        assert all("gcash_reference" not in str(event.event_metadata) for event in events)
+        assert all(str(key) not in str(event.event_metadata) for event in events)
+        assert session.get(Transaction, sale.json()["id"]).status == "Completed"
+        assert session.scalar(select(func.count()).select_from(SaleIdempotency)) == 1
+
+
+def test_owner_reconciliation_uncertain_and_voided_manual(api, monkeypatch):
+    client, factory, _app = api
+    import app.modules.transactions.reconciliation_service as reconciliation_service
+    import app.modules.transactions.service as sale_service
+    import app.modules.transactions.history_service as history_service
+    monkeypatch.setattr(history_service, "_database_time",
+                        lambda _session: datetime(2026, 10, 22, 16, 30, tzinfo=timezone.utc))
+    key = uuid4()
+    url = f"/api/v1/transactions/reconciliation/1/{key}"
+    assert client.get(url).json() == {"status": "not_committed_at_check", "sale": None}
+    assert client.post(url + "/acknowledge").status_code == 409
+    monkeypatch.setattr(reconciliation_service, "try_lock_sale_key", lambda *_args: False)
+    monkeypatch.setattr(sale_service, "try_lock_sale_key", lambda *_args: False)
+    processing = client.get(url)
+    assert processing.status_code == 202 and processing.json() == {"status": "processing", "sale": None}
+    assert client.post(url + "/acknowledge").status_code == 409
+    monkeypatch.setattr(reconciliation_service, "try_lock_sale_key", lambda *_args: True)
+    monkeypatch.setattr(sale_service, "try_lock_sale_key", lambda *_args: True)
+    assert client.get(f"/api/v1/transactions/reconciliation/999/{key}").status_code == 404
+    assert client.get("/api/v1/transactions/reconciliation/1/not-a-uuid").status_code == 422
+    manual = _send_manual(client, _manual_payload(), key)
+    assert manual.status_code == 201
+    assert client.get(url).json()["sale"]["id"] == manual.json()["id"]
+    assert client.post(f"/api/v1/transactions/{manual.json()['id']}/void", json={"reason": "synthetic correction"}).status_code == 200
+    acknowledgment = client.post(url + "/acknowledge")
+    assert acknowledgment.status_code == 200
+    assert acknowledgment.json()["sale"]["status"] == "Voided"
+    with factory() as session:
+        events = list(session.scalars(select(AuditEvent).where(
+            AuditEvent.event_type == "SaleReconciliationAcknowledged")))
+        assert [event.outcome for event in events] == ["Failure", "Failure", "Success"]
+        assert session.get(Transaction, manual.json()["id"]).manual_reference == "PAPER-20261023-001"
+
+
+def test_reconciliation_audit_failure_rolls_back_without_sale_change(api):
+    client, factory, _app = api
+    key = uuid4()
+    sale = _send(client, _payload(), key)
+    assert sale.status_code == 201
+    def fail_audit(_mapper, _connection, _target):
+        raise RuntimeError("synthetic audit failure")
+    event.listen(AuditEvent, "before_insert", fail_audit)
+    try:
+        with pytest.raises(RuntimeError, match="synthetic audit failure"):
+            client.post(f"/api/v1/transactions/reconciliation/1/{key}/acknowledge")
+    finally:
+        event.remove(AuditEvent, "before_insert", fail_audit)
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(AuditEvent)) == 0
+        assert session.get(Transaction, sale.json()["id"]).status == "Completed"
 
 
 def test_manual_sale_normalizes_reference_preserves_history_and_replays(api):

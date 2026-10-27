@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { getSalesOptions } from './salesApi.js'
 import ManualEntryForm from './ManualEntryForm.jsx'
+import OwnerSaleReconciliation from './OwnerSaleReconciliation.jsx'
 import './SalesRecording.css'
 
 const pricePattern = /^(?:0|[1-9][0-9]{0,9})(?:\.[0-9]{1,2})?$/
@@ -182,6 +183,8 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
           onClick={() => pendingSale.retry(csrfToken)}>Retry exact sale</button>}
       </div>}
     </div>}
+    {user.role === 'Owner' && <OwnerSaleReconciliation pendingSale={pendingSale}
+      csrfToken={csrfToken} onRevalidateSession={onRevalidateSession} />}
     {mode === 'direct' && loadState === 'loading' && <p role="status">Loading sales options…</p>}
     {mode === 'direct' && loadState === 'error' && <div><p role="alert">{formError}</p>
       <button type="button" onClick={() => { setLoadState('loading'); setReload((old) => old + 1) }}>Try again</button></div>}

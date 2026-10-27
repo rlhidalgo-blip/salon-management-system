@@ -5,6 +5,10 @@
 .sales-heading p { color: var(--muted); margin: 0.3rem 0 0.85rem; }
 .sales-pos-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; gap: 0.7rem; }
 .sales-surface, .sales-result, .sales-warning { min-width: 0; border: 1px solid var(--border); border-radius: 0.35rem; padding: 0.85rem 0.95rem; margin-bottom: 0.7rem; background: var(--surface); }
+.sales-reconcile-fields { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr); gap: 0.75rem; }
+.sales-reconcile-fields label { display: grid; gap: 0.3rem; min-width: 0; }
+.sales-reconcile-fields input { width: 100%; min-height: 2.75rem; padding: 0.55rem; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); color: var(--text); font: inherit; }
+@media (max-width: 440px) { .sales-reconcile-fields { grid-template-columns: minmax(0, 1fr); } }
 .sales-current { background: var(--background); border-top: 2px solid var(--accent); }
 .sales-selection { background: var(--surface); }
 .sales-warning { border-color: var(--error); }
