@@ -30,6 +30,49 @@ export function getManualSalesOptions(signal) {
   return request('/sales/manual-options', { signal })
 }
 
+export async function getSalesCapabilities(signal) {
+  const result = await request('/sales/capabilities', { signal, cache: 'no-store' })
+  if (!result || Object.keys(result).length !== 1 ||
+      (result.protocol !== 'legacy' && result.protocol !== 'reserved_v1')) throw new SalesApiError()
+  return result.protocol
+}
+
+export function getOpenSaleAttempt(signal) {
+  return request('/sales/attempts/open', { signal, cache: 'no-store' })
+}
+
+export function getOwnSaleAttemptByKey(key, signal) {
+  return request(`/sales/attempts/by-idempotency-key/${encodeURIComponent(key)}`,
+    { signal, cache: 'no-store' })
+}
+
+export function findSaleAttempts(recordingUserId, reference, beforeId, signal) {
+  const query = new URLSearchParams({ recording_user_id: String(recordingUserId), limit: '50' })
+  if (reference) query.set('reference', reference)
+  if (beforeId) query.set('before_id', String(beforeId))
+  return request(`/sales/attempts?${query}`, { signal, cache: 'no-store' })
+}
+
+export function getSaleAttempt(attemptId, signal) {
+  return request(`/sales/attempts/${attemptId}`, { signal, cache: 'no-store' })
+}
+
+export function cancelSaleAttempt(attemptId, reason, csrfToken) {
+  return request(`/sales/attempts/${attemptId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    body: JSON.stringify({ reason, evidence_verified: true }),
+  })
+}
+
+export function reserveSaleAttempt(source, payload, key, csrfToken) {
+  return request('/sales/attempts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key, 'X-CSRF-Token': csrfToken },
+    body: JSON.stringify({ source, sale: payload }),
+  })
+}
+
 export function createSale(payload, key, csrfToken) {
   return request('/transactions', {
     method: 'POST',

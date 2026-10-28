@@ -39,7 +39,9 @@ def _safe_target(connection, url):
         pytest.fail("Unexpected schema; no writes attempted")
     if connection.scalar(text("SELECT to_regclass('public.alembic_version')")) is None:
         pytest.fail("Missing Alembic revision; no writes attempted")
-    if connection.scalar(text("SELECT version_num FROM public.alembic_version")) != "20261020_01":
+    revision = connection.scalar(text("SELECT version_num FROM public.alembic_version"))
+    has_attempts = connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is not None
+    if (revision, has_attempts) not in (("20261020_01", False), ("20261027_01", True)):
         pytest.fail("Unexpected Alembic revision; no writes attempted")
 
 

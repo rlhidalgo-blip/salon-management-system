@@ -8,6 +8,13 @@
 .sales-reconcile-fields { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr); gap: 0.75rem; }
 .sales-reconcile-fields label { display: grid; gap: 0.3rem; min-width: 0; }
 .sales-reconcile-fields input { width: 100%; min-height: 2.75rem; padding: 0.55rem; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); color: var(--text); font: inherit; }
+.sales-attempts { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.sales-attempts h3 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+.sales-attempt-list { list-style: none; padding: 0; margin: 0.75rem 0 0; }
+.sales-attempt-list li { min-width: 0; padding: 0.7rem 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.sales-attempt-list li > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.3rem 0.75rem; }
+.sales-attempt-list p { margin: 0.35rem 0; color: var(--muted); }
+.sales-leave-dialog textarea { display: block; width: 100%; min-height: 5rem; padding: 0.55rem; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); color: var(--text); font: inherit; resize: vertical; }
 @media (max-width: 440px) { .sales-reconcile-fields { grid-template-columns: minmax(0, 1fr); } }
 .sales-current { background: var(--background); border-top: 2px solid var(--accent); }
 .sales-selection { background: var(--surface); }

@@ -10,7 +10,12 @@ const owner = { user: { id: 1, username: 'synthetic_owner', role: 'Owner' }, csr
 beforeEach(() => {
   window.localStorage.clear()
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
-  vi.stubGlobal('fetch', vi.fn())
+  const mockedFetch = vi.fn()
+  const rawImplementation = mockedFetch.mockImplementation.bind(mockedFetch)
+  mockedFetch.mockImplementation = (handler) => rawImplementation((url, options) =>
+    url === '/api/v1/sales/capabilities' ? Promise.resolve(response(200, { protocol: 'legacy' }))
+      : handler(url, options))
+  vi.stubGlobal('fetch', mockedFetch)
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
@@ -145,13 +150,15 @@ it('shows Sales as the Cashier primary screen without Owner management requests'
   fetch.mockResolvedValueOnce(response(200, {
     ...owner, user: { ...owner.user, role: 'Cashier' },
   })).mockResolvedValueOnce(response(200, { staff: [], services: [], products: [] }))
+    .mockResolvedValueOnce(response(200, { protocol: 'legacy' }))
   render(<App />)
   expect(await screen.findByText('Role: Cashier')).toBeTruthy()
   expect(await screen.findByRole('heading', { name: 'Sales Recording' })).toBeTruthy()
   expect(screen.queryByText('Staff Management')).toBeNull()
   expect(screen.queryByText('Catalog Management')).toBeNull()
   expect(screen.queryByRole('navigation', { name: 'Owner sections' })).toBeNull()
-  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/v1/auth/me', '/api/v1/sales/options'])
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/v1/auth/me',
+    '/api/v1/sales/capabilities', '/api/v1/sales/options'])
 })
 
 it('adds Owner History without changing the default Staff section or rechecking the session', async () => {

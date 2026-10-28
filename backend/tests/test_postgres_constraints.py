@@ -17,7 +17,7 @@ from app.db.model_registry import get_model_metadata
 
 TABLES = get_model_metadata().tables
 TEST_DATABASE = "yabs_salon_test"
-EXPECTED_REVISION = "20261020_01"
+ALLOWED_SCHEMAS = (("20261020_01", False), ("20261027_01", True))
 
 
 class DatabaseCase:
@@ -60,7 +60,8 @@ def db() -> Iterator[DatabaseCase]:
             if version_table is None:
                 pytest.fail("Alembic version table is absent; no test writes attempted")
             revision = connection.scalar(text("SELECT version_num FROM public.alembic_version"))
-            if revision != EXPECTED_REVISION:
+            has_attempts = connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is not None
+            if (revision, has_attempts) not in ALLOWED_SCHEMAS:
                 pytest.fail("Expected Alembic revision is not applied; no test writes attempted")
 
             # The guard queries start an implicit transaction. End it, then own

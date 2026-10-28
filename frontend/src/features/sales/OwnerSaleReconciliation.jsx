@@ -1,8 +1,223 @@
 import { useRef, useState } from 'react'
 
-import { acknowledgeOwnerSale, getOwnerSaleStatus } from './salesApi.js'
+import { acknowledgeOwnerSale, cancelSaleAttempt, findSaleAttempts, getOwnerSaleStatus,
+  getSaleAttempt } from './salesApi.js'
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const referencePattern = /^(?:DS-\d{12,}|PAPER-\d{8}-\d{3})$/
+
+function OwnerAttempts({ csrfToken, onRevalidateSession, onCommittedSelected }) {
+  const [recordingUserId, setRecordingUserId] = useState('')
+  const [reference, setReference] = useState('')
+  const [rows, setRows] = useState([])
+  const [searched, setSearched] = useState(false)
+  const [more, setMore] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+  const [target, setTarget] = useState(null)
+  const [reason, setReason] = useState('')
+  const [evidence, setEvidence] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const generation = useRef(0)
+  const loadingRef = useRef(false)
+  const cancellingRef = useRef(false)
+  const dialogRef = useRef(null)
+  const cancelButton = useRef(null)
+  const returnFocus = useRef(null)
+  const queryRef = useRef(null)
+
+  function closeDialog() {
+    if (dialogRef.current?.open) dialogRef.current.close()
+    setTarget(null)
+    setReason('')
+    setEvidence(false)
+    returnFocus.current?.focus()
+  }
+
+  function invalidate(setter, value) {
+    if (cancellingRef.current) return
+    generation.current += 1
+    loadingRef.current = false
+    setLoading(false)
+    queryRef.current = null
+    setter(value)
+    setRows([])
+    setSearched(false)
+    setMore(false)
+    setMessage('')
+    if (!cancellingRef.current) closeDialog()
+  }
+
+  async function handleFailure(error, fallback) {
+    if (error.status === 401) {
+      try { await onRevalidateSession() } catch { /* Keep the result unverified. */ }
+    }
+    setMessage(error.status === 403 ? 'Owner access is required.'
+      : error.status === 404 ? 'Attempt was not found or is no longer available.'
+        : error.status === 422 ? 'Check the recording user ID, reference, or cancellation reason.'
+          : error.status === 409 ? 'Attempt changed. Recheck its status; no browser pending state was cleared.'
+            : fallback)
+  }
+
+  async function search(next = false) {
+    if (loadingRef.current || cancellingRef.current) return
+    const id = Number(recordingUserId)
+    const normalized = reference.trim().toUpperCase()
+    if (!Number.isSafeInteger(id) || id <= 0 || (normalized && !referencePattern.test(normalized))) {
+      setMessage('Enter a valid recording user ID and exact DS or PAPER reference.')
+      return
+    }
+    const query = next ? queryRef.current : { id, reference: normalized }
+    if (!query || (next && (!more || rows.length === 0))) return
+    const cursor = next ? rows.at(-1).id : undefined
+    const requestId = ++generation.current
+    loadingRef.current = true
+    setLoading(true)
+    setMessage('')
+    if (!next) {
+      setRows([])
+      setSearched(false)
+      setMore(false)
+      queryRef.current = query
+    }
+    try {
+      const result = await findSaleAttempts(query.id, query.reference, cursor)
+      if (requestId !== generation.current) return
+      if (!Array.isArray(result) || result.some((row) => row.user_id !== query.id ||
+          !['Reserved', 'Committed', 'Cancelled'].includes(row.state) || !Number.isSafeInteger(row.id))) throw new Error()
+      setRows(next ? (previous) => [...previous, ...result] : result)
+      setMore(result.length === 50)
+      setSearched(true)
+    } catch (error) {
+      if (requestId !== generation.current) return
+      if (!next) queryRef.current = null
+      await handleFailure(error, 'Could not investigate attempts. Try again.')
+    } finally {
+      if (requestId === generation.current) {
+        loadingRef.current = false
+        setLoading(false)
+      }
+    }
+  }
+
+  async function openCancel(row, event) {
+    if (loadingRef.current || cancellingRef.current || row.state !== 'Reserved') return
+    returnFocus.current = event.currentTarget
+    const requestId = ++generation.current
+    setLoading(true)
+    setMessage('')
+    try {
+      const fresh = await getSaleAttempt(row.id)
+      if (requestId !== generation.current) return
+      if (fresh.id !== row.id || fresh.user_id !== row.user_id ||
+          fresh.idempotency_key !== row.idempotency_key || fresh.state !== 'Reserved') {
+        setMessage('Attempt changed. Search again before cancellation.')
+        return
+      }
+      setTarget(fresh)
+      setReason('')
+      setEvidence(false)
+      dialogRef.current.showModal()
+      cancelButton.current?.focus()
+    } catch (error) {
+      if (requestId === generation.current) await handleFailure(error, 'Could not verify attempt. Search again.')
+    } finally {
+      if (requestId === generation.current) setLoading(false)
+    }
+  }
+
+  async function refreshDetail(id, requestId) {
+    try {
+      const fresh = await getSaleAttempt(id)
+      if (requestId === generation.current) {
+        setRows((previous) => previous.map((row) => row.id === id ? fresh : row))
+        setMessage(`Attempt #${id} is now ${fresh.state}. Browser pending state was not cleared.`)
+      }
+    } catch (error) {
+      if (requestId === generation.current) await handleFailure(error,
+        'Cancellation outcome is uncertain. Recheck this attempt; do not clear browser pending state.')
+    }
+  }
+
+  async function confirmCancel() {
+    const normalizedReason = reason.trim()
+    if (cancellingRef.current || !target || !dialogRef.current?.open || !evidence ||
+        !normalizedReason || normalizedReason.length > 500) return
+    const selected = target
+    const requestId = ++generation.current
+    cancellingRef.current = true
+    setCancelling(true)
+    setMessage('')
+    try {
+      const fresh = await getSaleAttempt(selected.id)
+      if (requestId !== generation.current || fresh.id !== selected.id || fresh.user_id !== selected.user_id ||
+          fresh.idempotency_key !== selected.idempotency_key || fresh.state !== 'Reserved') {
+        closeDialog()
+        setMessage('Attempt changed. Recheck its status; no cancellation was sent.')
+        await refreshDetail(selected.id, requestId)
+        return
+      }
+      const result = await cancelSaleAttempt(selected.id, normalizedReason, csrfToken)
+      if (requestId !== generation.current) return
+      closeDialog()
+      if (result.id !== selected.id || result.state !== 'Cancelled' ||
+          result.idempotency_key !== selected.idempotency_key) throw new Error()
+      setRows((previous) => previous.map((row) => row.id === selected.id ? result : row))
+      setMessage(`Attempt #${selected.id} cancelled. Its key and reference remain fenced. Browser pending state was not cleared.`)
+    } catch (error) {
+      if (requestId !== generation.current) return
+      closeDialog()
+      await handleFailure(error, 'Cancellation outcome is uncertain. Rechecking attempt status.')
+      if (!error.status || error.status === 409 || error.status >= 500) {
+        await refreshDetail(selected.id, requestId)
+      }
+    } finally {
+      cancellingRef.current = false
+      if (requestId === generation.current) setCancelling(false)
+    }
+  }
+
+  return <div className="sales-attempts" aria-labelledby="sales-attempts-title">
+    <h3 id="sales-attempts-title">Sale Attempts</h3>
+    <div className="sales-reconcile-fields">
+      <label>Attempt recording user ID<input type="number" min="1" step="1" value={recordingUserId}
+        onChange={(event) => invalidate(setRecordingUserId, event.target.value)} /></label>
+      <label>Exact Direct or paper reference (optional)<input type="text" value={reference} autoComplete="off"
+        onChange={(event) => invalidate(setReference, event.target.value)} /></label>
+    </div>
+    <div className="sales-actions"><button type="button" disabled={loading || cancelling} onClick={() => search()}>Search attempts</button></div>
+    {loading && <p role="status">Checking attempts…</p>}
+    {searched && rows.length === 0 && <p>No attempts found for this search.</p>}
+    {rows.length > 0 && <ul className="sales-attempt-list">{rows.map((row) => <li key={row.id}>
+      <div><strong>Attempt #{row.id}</strong> <span>{row.state}</span></div>
+      <p>User #{row.user_id} · {row.source} · {row.direct_reference || row.manual_reference || 'No reference'}</p>
+      <p>Created {new Date(row.created_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })}</p>
+      {row.state === 'Reserved' && <button type="button" disabled={loading || cancelling}
+        onClick={(event) => openCancel(row, event)}>Cancel attempt #{row.id}</button>}
+      {row.state === 'Committed' && <button type="button" disabled={loading || cancelling}
+        onClick={() => onCommittedSelected(row.user_id, row.idempotency_key)}>Use exact-key lookup for attempt #{row.id}</button>}
+      {row.state === 'Cancelled' && <p>Key and reference are permanently fenced. No reactivation or electronic replacement is available.</p>}
+    </li>)}</ul>}
+    {more && <div className="sales-actions"><button type="button" disabled={loading || cancelling}
+      onClick={() => search(true)}>Load more attempts</button></div>}
+    <dialog ref={dialogRef} className="sales-leave-dialog" aria-labelledby="attempt-cancel-title"
+      aria-describedby="attempt-cancel-description"
+      onCancel={(event) => { event.preventDefault(); if (!cancellingRef.current) closeDialog() }}>
+      <h2 id="attempt-cancel-title">Cancel reserved attempt #{target?.id}</h2>
+      <p id="attempt-cancel-description">Reference: {target?.direct_reference || target?.manual_reference}. Verify external evidence first. Cancellation permanently fences this key and reference; it does not clear any browser pending state or create a replacement sale.</p>
+      <label>Cancellation reason<textarea value={reason} maxLength={500} disabled={cancelling}
+        onChange={(event) => setReason(event.target.value)} /></label>
+      <label className="sales-manual-attestation"><input type="checkbox" checked={evidence} disabled={cancelling}
+        onChange={(event) => setEvidence(event.target.checked)} />I verified the external receipt/payment evidence for this attempt.</label>
+      <div className="sales-leave-actions">
+        <button type="button" ref={cancelButton} disabled={cancelling} onClick={closeDialog}>Keep attempt</button>
+        <button type="button" disabled={cancelling || !evidence || !reason.trim() || reason.trim().length > 500}
+          onClick={confirmCancel}>Confirm cancellation</button>
+      </div>
+    </dialog>
+    {message && <p role="alert">{message}</p>}
+  </div>
+}
 
 export default function OwnerSaleReconciliation({ pendingSale, csrfToken, onRevalidateSession }) {
   const [userId, setUserId] = useState(String(pendingSale.pending?.userId ?? ''))
@@ -42,6 +257,12 @@ export default function OwnerSaleReconciliation({ pendingSale, csrfToken, onReva
     setChecked(null)
     setAcknowledged(false)
     setMessage('')
+  }
+
+  function selectCommitted(targetUserId, targetKey) {
+    change(setUserId, String(targetUserId))
+    setKey(targetKey)
+    setMessage('Use Check sale for a fresh committed lookup before acknowledgment.')
   }
 
   async function investigate() {
@@ -147,5 +368,7 @@ export default function OwnerSaleReconciliation({ pendingSale, csrfToken, onReva
       </div>
     </dialog>
     {message && <p role="alert">{message}</p>}
+    {pendingSale.protocol === 'reserved_v1' && <OwnerAttempts csrfToken={csrfToken}
+      onRevalidateSession={onRevalidateSession} onCommittedSelected={selectCommitted} />}
   </section>
 }

@@ -76,7 +76,7 @@ def test_initial_upgrade_matches_registered_metadata(monkeypatch) -> None:
     INITIAL_REVISION.upgrade()
 
     expected_metadata = get_model_metadata()
-    assert set(migration_metadata.tables) == set(expected_metadata.tables)
+    assert set(migration_metadata.tables) == set(expected_metadata.tables) - {"sale_attempts"}
     assert len(create_order) == 10
     for table_name in create_order:
         table = migration_metadata.tables[table_name]

@@ -31,6 +31,31 @@ function setup(user = cashier, extra = (url) => url === '/api/v1/transactions'
       : url.endsWith('/staff') ? reply(200, []) : extra(url)))
 }
 
+function reservedSetup(user = cashier, extra = () => null, open = null) {
+  fetch.rawImplementation((url, init) => {
+    if (url.endsWith('/me')) return Promise.resolve(reply(200, user))
+    if (url === '/api/v1/sales/capabilities') return Promise.resolve(reply(200, { protocol: 'reserved_v1' }))
+    if (url === '/api/v1/sales/attempts/open') return Promise.resolve(reply(200, open))
+    if (url === '/api/v1/sales/options') return Promise.resolve(reply(200, options))
+    if (url === '/api/v1/sales/manual-options') return Promise.resolve(reply(200, manualOptions))
+    if (url === '/api/v1/staff') return Promise.resolve(reply(200, []))
+    return extra(url, init) ?? Promise.resolve(reply(200, { status: 'committed', sale }))
+  })
+}
+
+function reservedReply(source, paperReference, userId = 2) {
+  return { id: 12, user_id: userId, idempotency_key: KEY, source, state: 'Reserved',
+    direct_reference: source === 'Direct' ? 'DS-000000000012' : null,
+    manual_reference: source === 'Manual' ? paperReference : null }
+}
+
+function investigationRow(id, state = 'Reserved', source = 'Direct') {
+  return { id, user_id: 2, idempotency_key: KEY, source, state,
+    direct_reference: source === 'Direct' ? `DS-${String(id).padStart(12, '0')}` : null,
+    manual_reference: source === 'Manual' ? 'PAPER-20261027-001' : null,
+    created_at: '2026-10-27T08:00:00+08:00' }
+}
+
 async function ready(user = cashier) {
   render(<App />)
   if (user.user.role === 'Owner') {
@@ -81,9 +106,579 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
   vi.stubGlobal('crypto', { randomUUID: () => KEY })
-  vi.stubGlobal('fetch', vi.fn())
+  const mockedFetch = vi.fn()
+  const rawImplementation = mockedFetch.mockImplementation.bind(mockedFetch)
+  // Existing regression cases run against the explicit default-off server mode.
+  mockedFetch.mockImplementation = (handler) => rawImplementation((url, options) =>
+    url === '/api/v1/sales/capabilities' ? Promise.resolve(reply(200, { protocol: 'legacy' }))
+      : handler(url, options))
+  mockedFetch.rawImplementation = rawImplementation
+  vi.stubGlobal('fetch', mockedFetch)
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it.each([404, 500])('blocks electronic sales when capability check returns %i', async (code) => {
+  fetch.rawImplementation((url) => Promise.resolve(url.endsWith('/me') ? reply(200, cashier)
+    : url === '/api/v1/sales/capabilities' ? reply(code, {})
+      : url === '/api/v1/sales/options' ? reply(200, options) : reply(404, {})))
+  await ready()
+  await screen.findByText(/Sales protocol could not be verified/i)
+  expect(screen.getByRole('button', { name: 'Review sale' }).disabled).toBe(true)
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+})
+
+it('rejects an invalid capability body without treating it as legacy', async () => {
+  fetch.rawImplementation((url) => Promise.resolve(url.endsWith('/me') ? reply(200, cashier)
+    : url === '/api/v1/sales/capabilities' ? reply(200, { protocol: 'unknown' })
+      : url === '/api/v1/sales/options' ? reply(200, options) : reply(404, {})))
+  await ready()
+  await screen.findByText(/Sales protocol could not be verified/i)
+  expect(screen.getByRole('button', { name: 'Review sale' }).disabled).toBe(true)
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+})
+
+it('blocks a protocol change before allocating a UUID or posting either sale type', async () => {
+  let checks = 0
+  fetch.rawImplementation((url) => Promise.resolve(url.endsWith('/me') ? reply(200, cashier)
+    : url === '/api/v1/sales/capabilities' ? reply(200, { protocol: ++checks === 1 ? 'legacy' : 'reserved_v1' })
+      : url === '/api/v1/sales/options' ? reply(200, options) : reply(404, {})))
+  const uuid = vi.spyOn(crypto, 'randomUUID')
+  await ready()
+  add('Oil', 'product')
+  fireEvent.click(screen.getByRole('button', { name: 'Review sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
+  await screen.findByText(/Sales protocol or browser storage could not be verified/i)
+  expect(uuid).not.toHaveBeenCalled()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeNull()
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions' ||
+    url === '/api/v1/sales/attempts')).toBe(false)
+})
+
+it('reserves Direct payload and key before POST, then requires physical-reference acknowledgment', async () => {
+  reservedSetup(cashier, (url, init) => {
+    if (url === '/api/v1/sales/attempts') return Promise.resolve(reply(201, reservedReply('Direct')))
+    if (url === '/api/v1/transactions') return Promise.resolve(reply(201, sale))
+    return null
+  })
+  await ready()
+  add('Oil', 'product')
+  fireEvent.click(screen.getByRole('button', { name: 'Review sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
+  expect(await screen.findByText(/Direct reference: DS-000000000012/)).toBeTruthy()
+  const reservation = fetch.mock.calls.find(([url]) => url === '/api/v1/sales/attempts')
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/sales/capabilities')).toHaveLength(2)
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/sales/attempts/open')).toHaveLength(2)
+  expect(reservation[1].headers['Idempotency-Key']).toBe(KEY)
+  expect(reservation[1].headers['X-CSRF-Token']).toBe('synthetic-csrf')
+  expect(reservation[1].credentials).toBe('same-origin')
+  expect(JSON.parse(reservation[1].body)).toEqual({ source: 'Direct', sale: {
+    payment_method: 'Cash', items: [{ product_id: 7, selling_price: '80.25' }],
+  } })
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+  const send = screen.getByRole('button', { name: 'Submit reserved sale' })
+  expect(send.disabled).toBe(true)
+  fireEvent.click(screen.getByLabelText(/I recorded this Direct reference/i))
+  fireEvent.click(send)
+  await screen.findByRole('heading', { name: 'Sale Confirmed' })
+  const post = fetch.mock.calls.find(([url]) => url === '/api/v1/transactions')
+  expect(post[1].body).toBe(JSON.stringify(JSON.parse(reservation[1].body).sale))
+  expect(post[1].headers['Idempotency-Key']).toBe(KEY)
+  expect(fetch.mock.calls.indexOf(reservation)).toBeLessThan(fetch.mock.calls.indexOf(post))
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeNull()
+})
+
+it('reserves normalized Manual reference before submitting the exact original payload', async () => {
+  reservedSetup(cashier, (url, init) => {
+    if (url === '/api/v1/sales/attempts') return Promise.resolve(reply(201,
+      reservedReply('Manual', JSON.parse(init.body).sale.manual_reference)))
+    if (url === '/api/v1/transactions/manual') return Promise.resolve(reply(201, sale))
+    return null
+  })
+  await ready()
+  await manualReady()
+  fillManualService()
+  fireEvent.click(screen.getByRole('button', { name: 'Review Manual sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Manual sale' }))
+  await screen.findByRole('heading', { name: 'Sale Confirmed' })
+  const reservation = fetch.mock.calls.find(([url]) => url === '/api/v1/sales/attempts')
+  const post = fetch.mock.calls.find(([url]) => url === '/api/v1/transactions/manual')
+  expect(JSON.parse(reservation[1].body).source).toBe('Manual')
+  expect(JSON.parse(reservation[1].body).sale.manual_reference).toMatch(/^PAPER-\d{8}-001$/)
+  expect(post[1].body).toBe(JSON.stringify(JSON.parse(reservation[1].body).sale))
+  expect(reservation[1].headers['Idempotency-Key']).toBe(post[1].headers['Idempotency-Key'])
+  expect(fetch.mock.calls.indexOf(reservation)).toBeLessThan(fetch.mock.calls.indexOf(post))
+})
+
+it('keeps the UUID after lost reservation response and retries that exact reservation', async () => {
+  let requests = 0
+  reservedSetup(cashier, (url) => {
+    if (url === '/api/v1/sales/attempts') {
+      requests += 1
+      return requests === 1 ? Promise.reject(new Error('network'))
+        : Promise.resolve(reply(200, reservedReply('Direct')))
+    }
+    return null
+  })
+  await ready()
+  add('Oil', 'product')
+  fireEvent.click(screen.getByRole('button', { name: 'Review sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
+  await screen.findByText(/Reservation outcome is uncertain/i)
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Retry exact sale' }))
+  expect(await screen.findByText(/Direct reference: DS-000000000012/)).toBeTruthy()
+  const attempts = fetch.mock.calls.filter(([url]) => url === '/api/v1/sales/attempts')
+  expect(attempts).toHaveLength(2)
+  expect(attempts[0][1].body).toBe(attempts[1][1].body)
+  expect(attempts[0][1].headers['Idempotency-Key']).toBe(attempts[1][1].headers['Idempotency-Key'])
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+})
+
+it('never sends a reserved Direct sale after the server protocol changes', async () => {
+  let selected = 'reserved_v1'
+  reservedSetup(cashier, (url) => url === '/api/v1/sales/attempts'
+    ? Promise.resolve(reply(201, reservedReply('Direct'))) : null)
+  const original = fetch.getMockImplementation()
+  fetch.rawImplementation((url, init) => url === '/api/v1/sales/capabilities'
+    ? Promise.resolve(reply(200, { protocol: selected })) : original(url, init))
+  await ready()
+  add('Oil', 'product')
+  fireEvent.click(screen.getByRole('button', { name: 'Review sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
+  await screen.findByText(/Direct reference: DS-000000000012/)
+  selected = 'legacy'
+  fireEvent.click(screen.getByLabelText(/I recorded this Direct reference/i))
+  fireEvent.click(screen.getByRole('button', { name: 'Submit reserved sale' }))
+  await screen.findByText(/Cannot verify this reserved attempt now/i)
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+})
+
+it('prevents duplicate reserved Direct POSTs while the first remains in flight', async () => {
+  const waiting = deferred()
+  reservedSetup(cashier, (url) => url === '/api/v1/sales/attempts'
+    ? Promise.resolve(reply(201, reservedReply('Direct')))
+    : url === '/api/v1/transactions' ? waiting.promise : null)
+  await ready()
+  add('Oil', 'product')
+  fireEvent.click(screen.getByRole('button', { name: 'Review sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
+  await screen.findByText(/Direct reference: DS-000000000012/)
+  fireEvent.click(screen.getByLabelText(/I recorded this Direct reference/i))
+  const send = screen.getByRole('button', { name: 'Submit reserved sale' })
+  fireEvent.click(send)
+  fireEvent.click(send)
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/transactions')).toHaveLength(1))
+  waiting.resolve(reply(201, sale))
+  await screen.findByRole('heading', { name: 'Sale Confirmed' })
+})
+
+it('also supports Owner reservation without exposing Cashier-only assumptions', async () => {
+  reservedSetup(owner, (url) => url === '/api/v1/sales/attempts'
+    ? Promise.resolve(reply(201, reservedReply('Direct', null, 1))) : null)
+  await ready(owner)
+  add('Oil', 'product')
+  fireEvent.click(screen.getByRole('button', { name: 'Review sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
+  await screen.findByText(/Direct reference: DS-000000000012/)
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 1 }))
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+})
+
+it.each([409, 422])('keeps the pending identifier on reservation %i', async (status) => {
+  reservedSetup(cashier, (url) => url === '/api/v1/sales/attempts'
+    ? Promise.resolve(reply(status, {})) : null)
+  await ready()
+  add('Oil', 'product')
+  fireEvent.click(screen.getByRole('button', { name: 'Review sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
+  await screen.findByText(/Reservation outcome is uncertain/i)
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+  expect(screen.getByRole('button', { name: 'Manual Entry' }).disabled).toBe(true)
+})
+
+it('discovers a Reserved attempt after reload but never reconstructs or posts its payload', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  reservedSetup(cashier, (url) => url.includes('/by-idempotency-key/')
+    ? Promise.resolve(reply(200, { status: 'not_committed_at_check', sale: null })) : null,
+  reservedReply('Direct'))
+  await ready()
+  await screen.findByText(/original sale details are unavailable after reload/i)
+  expect(screen.getByRole('button', { name: 'Review sale' }).disabled).toBe(true)
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions' ||
+    url === '/api/v1/sales/attempts')).toBe(false)
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+})
+
+it('blocks a new electronic sale when another tab or device has an open reservation', async () => {
+  reservedSetup(cashier, () => null, reservedReply('Direct'))
+  await ready()
+  expect(await screen.findByText(/An open Direct reservation exists/i)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Review sale' }).disabled).toBe(true)
+  expect(fetch.mock.calls.some(([url]) => url === '/api/v1/sales/attempts')).toBe(false)
+})
+
+it('shows the Cashier own Manual paper reference without Owner recovery controls', async () => {
+  reservedSetup(cashier, () => null, investigationRow(12, 'Reserved', 'Manual'))
+  await ready()
+  expect(await screen.findByText(/PAPER-20261027-001/)).toBeTruthy()
+  expect(screen.getByText(/Contact the Owner to investigate/)).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Sale Attempts' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Cancel attempt/ })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Review sale' }).disabled).toBe(true)
+})
+
+it('manually clears only the exact Cancelled key after reload and never submits a replacement', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  sessionStorage.setItem('unrelated-setting', 'preserve')
+  const lookup = `/api/v1/sales/attempts/by-idempotency-key/${KEY}`
+  reservedSetup(cashier, (url) => url === `/api/v1/transactions/by-idempotency-key/${KEY}`
+    ? Promise.resolve(reply(200, { status: 'not_committed_at_check', sale: null }))
+    : url === lookup ? Promise.resolve(reply(200, investigationRow(12, 'Cancelled')))
+      : null)
+  await ready()
+  await screen.findByText(/No committed sale found at this check/)
+  fireEvent.click(screen.getByRole('button', { name: 'Check cancelled attempt' }))
+  const clear = await screen.findByRole('button', { name: 'Clear matching pending identifier' })
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+  expect(fetch.mock.calls.find(([url]) => url === lookup)[1].cache).toBe('no-store')
+  expect(screen.queryByRole('button', { name: 'Retry exact sale' })).toBeNull()
+  fireEvent.click(clear)
+  expect(await screen.findByText(/cancelled pending identifier was cleared/)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeNull()
+  expect(sessionStorage.getItem('unrelated-setting')).toBe('preserve')
+  expect(screen.getByText('No items added yet.')).toBeTruthy()
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/transactions' ||
+    url === '/api/v1/transactions/manual' || url === '/api/v1/sales/attempts')).toHaveLength(0)
+  expect(fetch.mock.calls.filter(([url]) => url === lookup)).toHaveLength(2)
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/sales/attempts/open')).toHaveLength(2)
+})
+
+it('discards the in-memory Manual payload and draft after exact Cancelled clearance', async () => {
+  reservedSetup(cashier, (url, init) => url === '/api/v1/sales/attempts'
+    ? Promise.resolve(reply(201, reservedReply('Manual', JSON.parse(init.body).sale.manual_reference)))
+    : url === '/api/v1/transactions/manual' ? Promise.resolve(reply(503, {}))
+      : url === `/api/v1/sales/attempts/by-idempotency-key/${KEY}`
+        ? Promise.resolve(reply(200, investigationRow(12, 'Cancelled', 'Manual')))
+        : url === `/api/v1/transactions/by-idempotency-key/${KEY}`
+          ? Promise.resolve(reply(200, { status: 'not_committed_at_check', sale: null })) : null)
+  await ready()
+  await manualReady()
+  fillManualService()
+  fireEvent.click(screen.getByRole('button', { name: 'Review Manual sale' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Manual sale' }))
+  await screen.findByText(/sale outcome is uncertain/i)
+  expect(screen.getByRole('button', { name: 'Retry exact sale' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Check cancelled attempt' }))
+  const clear = await screen.findByRole('button', { name: 'Clear matching pending identifier' })
+  expect(screen.queryByRole('button', { name: 'Retry exact sale' })).toBeNull()
+  fireEvent.click(clear)
+  expect(await screen.findByText(/cancelled pending identifier was cleared/)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Direct Sale' }).getAttribute('aria-pressed')).toBe('true')
+  expect(screen.getByText('No items added yet.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Manual Entry' }))
+  expect((await screen.findByLabelText('Paper reference')).value).toBe('')
+  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/transactions/manual')).toHaveLength(1)
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeNull()
+})
+
+it.each(['Reserved', 'Committed', 'missing', 'network'])('never clears a %s or unverified attempt', async (state) => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  const lookup = `/api/v1/sales/attempts/by-idempotency-key/${KEY}`
+  reservedSetup(cashier, (url) => url === `/api/v1/transactions/by-idempotency-key/${KEY}`
+    ? Promise.resolve(reply(200, { status: 'not_committed_at_check', sale: null }))
+    : url === lookup ? state === 'network' ? Promise.reject(new Error('offline'))
+      : Promise.resolve(state === 'missing' ? reply(404, {}) : reply(200, investigationRow(12, state)))
+      : null)
+  await ready()
+  await screen.findByText(/No committed sale found at this check/)
+  fireEvent.click(screen.getByRole('button', { name: 'Check cancelled attempt' }))
+  await screen.findByText(/not confirmed Cancelled|No matching sale attempt|could not be verified/)
+  expect(screen.queryByRole('button', { name: 'Clear matching pending identifier' })).toBeNull()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+})
+
+it('does not offer clearance while the same sale key is processing', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  let checks = 0
+  reservedSetup(cashier, (url) => url === `/api/v1/transactions/by-idempotency-key/${KEY}`
+    ? Promise.resolve(reply(200, { status: ++checks === 1 ? 'not_committed_at_check' : 'processing', sale: null }))
+    : url === `/api/v1/sales/attempts/by-idempotency-key/${KEY}`
+      ? Promise.resolve(reply(200, investigationRow(12, 'Cancelled'))) : null)
+  await ready()
+  await screen.findByText(/No committed sale found at this check/)
+  fireEvent.click(screen.getByRole('button', { name: 'Check cancelled attempt' }))
+  expect(await screen.findByText(/Sale key is processing or committed/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Clear matching pending identifier' })).toBeNull()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBeTruthy()
+})
+
+it('keeps the matching pending key when capability changes before clearance', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  let capability = 'reserved_v1'
+  fetch.rawImplementation((url) => Promise.resolve(url.endsWith('/me') ? reply(200, cashier)
+    : url === '/api/v1/sales/capabilities' ? reply(200, { protocol: capability })
+      : url === '/api/v1/sales/attempts/open' ? reply(200, null)
+        : url === '/api/v1/sales/options' ? reply(200, options)
+          : url === `/api/v1/sales/attempts/by-idempotency-key/${KEY}`
+            ? reply(200, investigationRow(12, 'Cancelled'))
+            : url === `/api/v1/transactions/by-idempotency-key/${KEY}`
+              ? reply(200, { status: 'not_committed_at_check', sale: null }) : reply(404, {})))
+  await ready()
+  await screen.findByText(/No committed sale found at this check/)
+  fireEvent.click(screen.getByRole('button', { name: 'Check cancelled attempt' }))
+  const clear = await screen.findByRole('button', { name: 'Clear matching pending identifier' })
+  capability = 'legacy'
+  fireEvent.click(clear)
+  expect(await screen.findByText(/clearance was not completed/)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+})
+
+it('rejects a changed pending identifier during Cancelled lookup', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  const delayed = deferred()
+  reservedSetup(cashier, (url) => url === `/api/v1/transactions/by-idempotency-key/${KEY}`
+    ? Promise.resolve(reply(200, { status: 'not_committed_at_check', sale: null }))
+    : url === `/api/v1/sales/attempts/by-idempotency-key/${KEY}` ? delayed.promise : null)
+  await ready()
+  await screen.findByText(/No committed sale found at this check/)
+  fireEvent.click(screen.getByRole('button', { name: 'Check cancelled attempt' }))
+  const other = '3f9ab8b9-e91d-4ea1-9f55-096b958a41db'
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: other, userId: 2 }))
+  delayed.resolve(reply(200, investigationRow(12, 'Cancelled')))
+  await screen.findByText(/Cancelled state could not be verified/)
+  expect(screen.queryByRole('button', { name: 'Clear matching pending identifier' })).toBeNull()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toContain(other)
+})
+
+it('rechecks the exact browser identifier after an in-flight clearance lookup', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  const delayed = deferred()
+  let lookups = 0
+  reservedSetup(cashier, (url) => url === `/api/v1/transactions/by-idempotency-key/${KEY}`
+    ? Promise.resolve(reply(200, { status: 'not_committed_at_check', sale: null }))
+    : url === `/api/v1/sales/attempts/by-idempotency-key/${KEY}`
+      ? ++lookups === 1 ? Promise.resolve(reply(200, investigationRow(12, 'Cancelled'))) : delayed.promise
+      : null)
+  await ready()
+  await screen.findByText(/No committed sale found at this check/)
+  fireEvent.click(screen.getByRole('button', { name: 'Check cancelled attempt' }))
+  const clear = await screen.findByRole('button', { name: 'Clear matching pending identifier' })
+  fireEvent.click(clear)
+  const other = '3f9ab8b9-e91d-4ea1-9f55-096b958a41db'
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: other, userId: 2 }))
+  delayed.resolve(reply(200, investigationRow(12, 'Cancelled')))
+  expect(await screen.findByText(/clearance was not completed/)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toContain(other)
+  expect(screen.getByRole('button', { name: 'Review sale' }).disabled).toBe(true)
+})
+
+it('does not offer Cashier cancellation clearance for a different signed-in user', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 1 }))
+  reservedSetup(cashier)
+  await ready()
+  expect(await screen.findByText(/unresolved sale for another account/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Check cancelled attempt' })).toBeNull()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 1 }))
+})
+
+it('keeps pending blocked when storage disappears before Cancelled clearance', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  reservedSetup(cashier, (url) => url === `/api/v1/transactions/by-idempotency-key/${KEY}`
+    ? Promise.resolve(reply(200, { status: 'not_committed_at_check', sale: null }))
+    : url === `/api/v1/sales/attempts/by-idempotency-key/${KEY}`
+      ? Promise.resolve(reply(200, investigationRow(12, 'Cancelled'))) : null)
+  await ready()
+  await screen.findByText(/No committed sale found at this check/)
+  fireEvent.click(screen.getByRole('button', { name: 'Check cancelled attempt' }))
+  const clear = await screen.findByRole('button', { name: 'Clear matching pending identifier' })
+  sessionStorage.removeItem('yabs-pending-sale')
+  fireEvent.click(clear)
+  expect(await screen.findByText(/identifier changed or is unavailable/)).toBeTruthy()
+  expect(screen.queryByText(/cancelled pending identifier was cleared/)).toBeNull()
+  expect(screen.getByRole('button', { name: 'Review sale' }).disabled).toBe(true)
+})
+
+it('fails closed if browser storage refuses to remove a verified Cancelled identifier', async () => {
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  reservedSetup(cashier, (url) => url === `/api/v1/transactions/by-idempotency-key/${KEY}`
+    ? Promise.resolve(reply(200, { status: 'not_committed_at_check', sale: null }))
+    : url === `/api/v1/sales/attempts/by-idempotency-key/${KEY}`
+      ? Promise.resolve(reply(200, investigationRow(12, 'Cancelled'))) : null)
+  await ready()
+  await screen.findByText(/No committed sale found at this check/)
+  fireEvent.click(screen.getByRole('button', { name: 'Check cancelled attempt' }))
+  const clear = await screen.findByRole('button', { name: 'Clear matching pending identifier' })
+  vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('storage denied') })
+  fireEvent.click(clear)
+  expect(await screen.findByText(/clearance was not completed/)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+  expect(screen.getByRole('button', { name: 'Review sale' }).disabled).toBe(true)
+})
+
+it('keeps attempt controls hidden while the server reports legacy sales', () => {
+  render(<OwnerSaleReconciliation pendingSale={{ pending: null, protocol: 'legacy', clearAcknowledged: vi.fn() }}
+    csrfToken="synthetic-csrf" onRevalidateSession={vi.fn()} />)
+  expect(screen.getByRole('button', { name: 'Check sale' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Sale Attempts' })).toBeNull()
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it('validates Owner attempt search and loads bounded pages without exposing payloads', async () => {
+  const firstPage = Array.from({ length: 50 }, (_, i) => investigationRow(100 - i))
+  fetch.mockImplementation((path) => Promise.resolve(path.includes('/sales/attempts?')
+    ? reply(200, path.includes('before_id=51') ? [investigationRow(50, 'Cancelled')] : firstPage)
+    : reply(500, {})))
+  render(<OwnerSaleReconciliation pendingSale={{ pending: null, protocol: 'reserved_v1', clearAcknowledged: vi.fn() }}
+    csrfToken="synthetic-csrf" onRevalidateSession={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Search attempts' }))
+  expect(screen.getByText(/Enter a valid recording user ID/)).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Attempt recording user ID'), { target: { value: '2' } })
+  fireEvent.change(screen.getByLabelText(/Exact Direct or paper reference/), { target: { value: 'invalid' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search attempts' }))
+  expect(fetch.mock.calls.some(([path]) => path.includes('/sales/attempts?'))).toBe(false)
+  fireEvent.change(screen.getByLabelText(/Exact Direct or paper reference/),
+    { target: { value: ' ds-000000000100 ' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search attempts' }))
+  await screen.findByText('Attempt #100')
+  expect(fetch.mock.calls.find(([path]) => path.includes('/sales/attempts?'))[0])
+    .toContain('reference=DS-000000000100')
+  expect(screen.getAllByRole('button', { name: /Cancel attempt/ })).toHaveLength(50)
+  fireEvent.click(screen.getByRole('button', { name: 'Load more attempts' }))
+  await screen.findByText('Attempt #50')
+  expect(fetch.mock.calls.some(([path]) => path.includes('before_id=51'))).toBe(true)
+  expect(screen.getByText(/permanently fenced/)).toBeTruthy()
+  expect(screen.queryByText(/request.hash|payment.secret|full.payload/i)).toBeNull()
+})
+
+it('ignores a stale Owner attempt search after inputs change', async () => {
+  const slow = deferred()
+  fetch.mockImplementation((path) => path.includes('recording_user_id=2') ? slow.promise
+    : Promise.resolve(reply(200, [{ ...investigationRow(20), user_id: 3 }])))
+  render(<OwnerSaleReconciliation pendingSale={{ pending: null, protocol: 'reserved_v1', clearAcknowledged: vi.fn() }}
+    csrfToken="synthetic-csrf" onRevalidateSession={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('Attempt recording user ID'), { target: { value: '2' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search attempts' }))
+  fireEvent.change(screen.getByLabelText('Attempt recording user ID'), { target: { value: '3' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search attempts' }))
+  await screen.findByText('Attempt #20')
+  slow.resolve(reply(200, [investigationRow(10)]))
+  await waitFor(() => expect(screen.queryByText('Attempt #10')).toBeNull())
+})
+
+it('requires fresh exact-key lookup for a Committed attempt and leaves Cancelled read-only', async () => {
+  fetch.mockImplementation((path) => Promise.resolve(path.includes('/sales/attempts?')
+    ? reply(200, [investigationRow(9, 'Committed'), investigationRow(8, 'Cancelled')])
+    : reply(500, {})))
+  render(<OwnerSaleReconciliation pendingSale={{ pending: null, protocol: 'reserved_v1', clearAcknowledged: vi.fn() }}
+    csrfToken="synthetic-csrf" onRevalidateSession={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('Attempt recording user ID'), { target: { value: '2' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search attempts' }))
+  await screen.findByText('Attempt #9')
+  expect(screen.queryByRole('button', { name: 'Acknowledge committed sale' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Cancel attempt/ })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Use exact-key lookup for attempt #9' }))
+  expect(screen.getByLabelText('Recording user ID').value).toBe('2')
+  expect(screen.getByLabelText('Exact sale UUID').value).toBe(KEY)
+  expect(screen.getByText(/fresh committed lookup/)).toBeTruthy()
+  expect(fetch.mock.calls.some(([path]) => path.includes('/acknowledge'))).toBe(false)
+})
+
+it('requires evidence, reason, confirmation and fresh detail before one Owner cancellation', async () => {
+  const row = investigationRow(12)
+  const response = deferred()
+  fetch.mockImplementation((path) => path.includes('/sales/attempts?')
+    ? Promise.resolve(reply(200, [row]))
+    : path === '/api/v1/sales/attempts/12' ? Promise.resolve(reply(200, row))
+      : path === '/api/v1/sales/attempts/12/cancel' ? response.promise : Promise.resolve(reply(500, {})))
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  render(<OwnerSaleReconciliation pendingSale={{ pending: null, protocol: 'reserved_v1', clearAcknowledged: vi.fn() }}
+    csrfToken="synthetic-csrf" onRevalidateSession={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('Attempt recording user ID'), { target: { value: '2' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search attempts' }))
+  await screen.findByText('Attempt #12')
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel attempt #12' }))
+  let prompt = await screen.findByRole('dialog', { name: 'Cancel reserved attempt #12' })
+  expect(document.activeElement).toBe(within(prompt).getByRole('button', { name: 'Keep attempt' }))
+  expect(within(prompt).getByRole('button', { name: 'Confirm cancellation' }).disabled).toBe(true)
+  fireEvent.click(within(prompt).getByRole('button', { name: 'Keep attempt' }))
+  expect(fetch.mock.calls.some(([path]) => path.endsWith('/cancel'))).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel attempt #12' }))
+  prompt = await screen.findByRole('dialog', { name: 'Cancel reserved attempt #12' })
+  const escape = new window.Event('cancel', { cancelable: true })
+  fireEvent(prompt, escape)
+  expect(escape.defaultPrevented).toBe(true)
+  expect(fetch.mock.calls.some(([path]) => path.endsWith('/cancel'))).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel attempt #12' }))
+  prompt = await screen.findByRole('dialog', { name: 'Cancel reserved attempt #12' })
+  fireEvent.change(within(prompt).getByLabelText('Cancellation reason'), { target: { value: '   ' } })
+  fireEvent.click(within(prompt).getByLabelText(/I verified the external receipt/))
+  expect(within(prompt).getByRole('button', { name: 'Confirm cancellation' }).disabled).toBe(true)
+  fireEvent.change(within(prompt).getByLabelText('Cancellation reason'), { target: { value: 'x'.repeat(501) } })
+  expect(within(prompt).getByRole('button', { name: 'Confirm cancellation' }).disabled).toBe(true)
+  fireEvent.change(within(prompt).getByLabelText('Cancellation reason'), { target: { value: '  Verified duplicate  ' } })
+  const confirm = within(prompt).getByRole('button', { name: 'Confirm cancellation' })
+  fireEvent.click(confirm)
+  fireEvent.click(confirm)
+  expect(confirm.disabled).toBe(true)
+  await waitFor(() => expect(fetch.mock.calls.filter(([path]) => path.endsWith('/cancel'))).toHaveLength(1))
+  expect(fetch.mock.calls.filter(([path]) => path === '/api/v1/sales/attempts/12')).toHaveLength(4)
+  const [, request] = fetch.mock.calls.find(([path]) => path.endsWith('/cancel'))
+  expect(request.headers['X-CSRF-Token']).toBe('synthetic-csrf')
+  expect(JSON.parse(request.body)).toEqual({ reason: 'Verified duplicate', evidence_verified: true })
+  response.resolve(reply(200, { ...row, state: 'Cancelled' }))
+  expect(await screen.findByText(/Its key and reference remain fenced/)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+})
+
+it.each([401, 403, 409, 422, 500])('keeps browser pending state after cancellation response %i', async (code) => {
+  const row = investigationRow(12)
+  const onRevalidateSession = vi.fn()
+  fetch.mockImplementation((path) => Promise.resolve(path.includes('/sales/attempts?')
+    ? reply(200, [row]) : path === '/api/v1/sales/attempts/12' ? reply(200, row)
+      : path.endsWith('/cancel') ? reply(code, {}) : reply(500, {})))
+  sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
+  render(<OwnerSaleReconciliation pendingSale={{ pending: null, protocol: 'reserved_v1', clearAcknowledged: vi.fn() }}
+    csrfToken="synthetic-csrf" onRevalidateSession={onRevalidateSession} />)
+  fireEvent.change(screen.getByLabelText('Attempt recording user ID'), { target: { value: '2' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search attempts' }))
+  await screen.findByText('Attempt #12')
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel attempt #12' }))
+  const prompt = await screen.findByRole('dialog', { name: 'Cancel reserved attempt #12' })
+  fireEvent.change(within(prompt).getByLabelText('Cancellation reason'), { target: { value: 'Verified evidence' } })
+  fireEvent.click(within(prompt).getByLabelText(/I verified the external receipt/))
+  fireEvent.click(within(prompt).getByRole('button', { name: 'Confirm cancellation' }))
+  const detailCount = code === 409 || code === 500 ? 3 : 2
+  await waitFor(() => expect(fetch.mock.calls.filter(([path]) => path === '/api/v1/sales/attempts/12')).toHaveLength(detailCount))
+  if (code === 401) await waitFor(() => expect(onRevalidateSession).toHaveBeenCalledTimes(1))
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+  expect(screen.getByRole('button', { name: 'Cancel attempt #12' })).toBeTruthy()
+})
+
+it('does not send cancellation if a Reserved attempt changed before confirmation', async () => {
+  const row = investigationRow(12)
+  let detailChecks = 0
+  fetch.mockImplementation((path) => Promise.resolve(path.includes('/sales/attempts?')
+    ? reply(200, [row]) : path === '/api/v1/sales/attempts/12'
+      ? reply(200, ++detailChecks === 1 ? row : { ...row, state: 'Committed' }) : reply(500, {})))
+  render(<OwnerSaleReconciliation pendingSale={{ pending: null, protocol: 'reserved_v1', clearAcknowledged: vi.fn() }}
+    csrfToken="synthetic-csrf" onRevalidateSession={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('Attempt recording user ID'), { target: { value: '2' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search attempts' }))
+  await screen.findByText('Attempt #12')
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel attempt #12' }))
+  const prompt = await screen.findByRole('dialog', { name: 'Cancel reserved attempt #12' })
+  fireEvent.change(within(prompt).getByLabelText('Cancellation reason'), { target: { value: 'Evidence checked' } })
+  fireEvent.click(within(prompt).getByLabelText(/I verified the external receipt/))
+  fireEvent.click(within(prompt).getByRole('button', { name: 'Confirm cancellation' }))
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Cancel reserved attempt #12' })).toBeNull())
+  expect(fetch.mock.calls.some(([path]) => path.endsWith('/cancel'))).toBe(false)
+  expect(await screen.findByRole('button', { name: 'Use exact-key lookup for attempt #12' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Cancel attempt #12' })).toBeNull()
+})
 
 it('requires fresh Owner acknowledgment before clearing an exact cross-user pending identifier', async () => {
   sessionStorage.setItem('yabs-pending-sale', JSON.stringify({ key: KEY, userId: 2 }))
@@ -467,7 +1062,7 @@ it('prevents duplicate submission while a POST remains in flight', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
   expect(screen.getByRole('button', { name: 'Confirm sale' }).disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
-  expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/transactions')).toHaveLength(1)
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/transactions')).toHaveLength(1))
   pending.resolve(reply(201, sale))
   await screen.findByText(/Sale is still processing/i)
 })

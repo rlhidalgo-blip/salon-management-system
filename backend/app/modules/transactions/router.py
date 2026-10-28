@@ -14,6 +14,7 @@ from app.modules.transactions.history_service import (
     get_history_detail, list_history, record_rejected_void, void_transaction,
 )
 from app.modules.transactions.manual_service import record_manual_sale
+from app.modules.transactions.attempt_feature import attempt_protocol_enabled
 from app.modules.transactions.reconciliation_service import (
     acknowledge_sale, investigate_sale, reject_acknowledgment,
 )
@@ -101,7 +102,8 @@ def post_direct_sale(payload: SaleCreate, response: Response,
                      session: Session = Depends(get_db_session)):
     with session.begin():
         result, replayed = record_direct_sale(session, payload, actor_user_id=principal.user_id,
-                                              idempotency_key=idempotency_key)
+                                              idempotency_key=idempotency_key,
+                                              enforce_reservation=attempt_protocol_enabled())
     # Context manager has committed before either success status is returned.
     if replayed:
         response.status_code = 200
@@ -117,6 +119,7 @@ def post_manual_sale(payload: ManualSaleCreate, response: Response,
         result, replayed = record_manual_sale(
             session, payload, actor_user_id=principal.user_id,
             role=principal.role, idempotency_key=idempotency_key,
+            enforce_reservation=attempt_protocol_enabled(),
         )
     if replayed:
         response.status_code = 200

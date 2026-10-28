@@ -21,8 +21,13 @@ from app.modules.catalog.models import Product, Service
 from app.modules.commissions.models import CommissionRule
 from app.modules.staff.models import Staff
 from app.modules.transactions.calculations import ZERO, calculate_item
+from app.modules.transactions.attempt_write_guard import (
+    committed_claim_or_none, mark_attempt_committed, require_reserved_attempt,
+)
 from app.modules.transactions.idempotency_models import SaleIdempotency
-from app.modules.transactions.idempotency_lock import lock_sale_key, try_lock_sale_key
+from app.modules.transactions.idempotency_lock import (
+    bound_sale_waits, lock_sale_key, retryable_sale_waits, try_lock_sale_key,
+)
 from app.modules.transactions.models import Transaction, TransactionItem
 from app.modules.transactions.schemas import SaleCreate, SaleItemPublic, SalePublic
 
@@ -56,13 +61,25 @@ def _public_sale(session: Session, transaction_id: int) -> SalePublic:
     )
 
 
+@retryable_sale_waits
 def record_direct_sale(session: Session, payload: SaleCreate, *, actor_user_id: int,
-                       idempotency_key: UUID) -> tuple[SalePublic, bool]:
+                       idempotency_key: UUID, enforce_reservation: bool = False) -> tuple[SalePublic, bool]:
     """Run inside one caller-owned transaction. bool is True for an identical retry."""
     # This must precede the claim, catalog/rule locks and any sale writes.
+    # The public route remains on the legacy path until the coordinated cutover.
+    if enforce_reservation:
+        bound_sale_waits(session)
     lock_sale_key(session, actor_user_id, idempotency_key)
     key = str(idempotency_key)
     fingerprint = _fingerprint(payload)
+    attempt = None
+    if enforce_reservation:
+        replay = committed_claim_or_none(session, user_id=actor_user_id, key=idempotency_key,
+                                         source="Direct", fingerprint=fingerprint)
+        if replay is not None:
+            return _public_sale(session, replay.transaction_id), True
+        attempt = require_reserved_attempt(session, user_id=actor_user_id, key=idempotency_key,
+                                           source="Direct", fingerprint=fingerprint)
     now = _database_time(session)
     try:
         with session.begin_nested():
@@ -71,6 +88,12 @@ def record_direct_sale(session: Session, payload: SaleCreate, *, actor_user_id: 
             session.add(claim)
             session.flush()
     except IntegrityError:
+        if enforce_reservation:
+            replay = committed_claim_or_none(session, user_id=actor_user_id, key=idempotency_key,
+                                             source="Direct", fingerprint=fingerprint)
+            if replay is None:
+                raise ApiError(409, "idempotency_conflict", "Sale attempt key is unavailable") from None
+            return _public_sale(session, replay.transaction_id), True
         existing = session.scalar(select(SaleIdempotency).where(
             SaleIdempotency.user_id == actor_user_id,
             SaleIdempotency.idempotency_key == key,
@@ -148,6 +171,8 @@ def record_direct_sale(session: Session, payload: SaleCreate, *, actor_user_id: 
     session.flush()
     claim.transaction_id = sale.id
     session.flush()
+    if attempt is not None:
+        mark_attempt_committed(session, attempt, sale.id)
     return _public_sale(session, sale.id), False
 
 
