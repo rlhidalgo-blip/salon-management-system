@@ -15,7 +15,12 @@ from app.modules.audit.models import AuditEvent
 from app.modules.catalog.models import Product, Service
 from app.modules.staff.models import Staff
 from app.modules.transactions.calculations import calculate_item
-from app.modules.transactions.idempotency_lock import lock_sale_key
+from app.modules.transactions.attempt_write_guard import (
+    committed_claim_or_none, mark_attempt_committed, require_reserved_attempt,
+)
+from app.modules.transactions.idempotency_lock import (
+    bound_sale_waits, lock_manual_reference, lock_sale_key, retryable_sale_waits,
+)
 from app.modules.transactions.idempotency_models import SaleIdempotency
 from app.modules.transactions.models import Transaction, TransactionItem
 from app.modules.transactions.schemas import ManualSaleCreate, SalePublic
@@ -54,19 +59,41 @@ def _existing_claim(session: Session, actor_user_id: int, key: str,
     return _public_sale(session, claim.transaction_id)
 
 
+@retryable_sale_waits
 def record_manual_sale(session: Session, payload: ManualSaleCreate, *, actor_user_id: int,
-                       role: str, idempotency_key: UUID) -> tuple[SalePublic, bool]:
+                       role: str, idempotency_key: UUID,
+                       enforce_reservation: bool = False) -> tuple[SalePublic, bool]:
     """Run inside one caller-owned transaction; True means an identical committed replay.
 
     Attestation is an operational acknowledgment, not proof that external paper
     or historical configuration was independently verified by this database.
     """
+    # The public route remains on the legacy path until the coordinated cutover.
+    if enforce_reservation:
+        bound_sale_waits(session)
     lock_sale_key(session, actor_user_id, idempotency_key)
     key = str(idempotency_key)
     fingerprint = _fingerprint(payload)
-    replay = _existing_claim(session, actor_user_id, key, fingerprint)
+    attempt = None
+    if enforce_reservation:
+        claim = committed_claim_or_none(session, user_id=actor_user_id, key=idempotency_key,
+                                        source="Manual", fingerprint=fingerprint,
+                                        manual_reference=payload.manual_reference)
+        replay = _public_sale(session, claim.transaction_id) if claim is not None else None
+    else:
+        replay = _existing_claim(session, actor_user_id, key, fingerprint)
     if replay is not None:
         return replay, True
+
+    if enforce_reservation:
+        lock_manual_reference(session, payload.manual_reference)
+        attempt = require_reserved_attempt(session, user_id=actor_user_id, key=idempotency_key,
+                                           source="Manual", fingerprint=fingerprint,
+                                           manual_reference=payload.manual_reference)
+        # A Voided or legacy committed sale still owns its paper reference.
+        if session.scalar(select(Transaction.id).where(
+                Transaction.manual_reference == payload.manual_reference)) is not None:
+            raise ApiError(409, "duplicate_paper_reference", "Paper reference is already recorded")
 
     occurrence = payload.date_time.astimezone(timezone.utc)
     business_date = occurrence.astimezone(MANILA).date()
@@ -96,7 +123,7 @@ def record_manual_sale(session: Session, payload: ManualSaleCreate, *, actor_use
         raise ApiError(403, "forbidden", "Insufficient permissions")
 
     # An existing Voided transaction still owns its paper reference.
-    if session.scalar(select(Transaction.id).where(
+    if not enforce_reservation and session.scalar(select(Transaction.id).where(
             Transaction.manual_reference == payload.manual_reference)) is not None:
         raise ApiError(409, "duplicate_paper_reference", "Paper reference is already recorded")
 
@@ -109,6 +136,13 @@ def record_manual_sale(session: Session, payload: ManualSaleCreate, *, actor_use
             session.add(claim)
             session.flush()
     except IntegrityError:
+        if enforce_reservation:
+            claim = committed_claim_or_none(session, user_id=actor_user_id, key=idempotency_key,
+                                            source="Manual", fingerprint=fingerprint,
+                                            manual_reference=payload.manual_reference)
+            if claim is None:
+                raise ApiError(409, "idempotency_conflict", "Sale attempt key is unavailable") from None
+            return _public_sale(session, claim.transaction_id), True
         replay = _existing_claim(session, actor_user_id, key, fingerprint)
         if replay is not None:
             return replay, True
@@ -155,6 +189,8 @@ def record_manual_sale(session: Session, payload: ManualSaleCreate, *, actor_use
             sale.created_at = completed_at
             audit.occurred_at = completed_at
             session.flush()
+            if attempt is not None:
+                mark_attempt_committed(session, attempt, sale.id)
     except IntegrityError as exc:
         if _reference_conflict(exc):
             raise ApiError(409, "duplicate_paper_reference", "Paper reference is already recorded") from None

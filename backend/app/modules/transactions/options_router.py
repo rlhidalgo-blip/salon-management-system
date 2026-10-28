@@ -1,6 +1,7 @@
 """Read-only sale choices; Owner management endpoints stay separate."""
 
 from decimal import Decimal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ from app.modules.auth.dependencies import require_owner_or_cashier
 from app.modules.catalog.models import Product, Service
 from app.modules.commissions.models import CommissionRule
 from app.modules.staff.models import Staff
+from app.modules.transactions.attempt_feature import attempt_protocol_enabled
 
 
 router = APIRouter(prefix="/api/v1/sales", tags=["sales"])
@@ -59,6 +61,17 @@ class ManualSalesOptions(BaseModel):
     staff: list[ManualStaffOption]
     services: list[ManualCatalogOption]
     products: list[ManualCatalogOption]
+
+
+class SalesCapabilities(BaseModel):
+    protocol: Literal["legacy", "reserved_v1"]
+
+
+@router.get("/capabilities", response_model=SalesCapabilities)
+def get_sales_capabilities(response: Response, _principal=Depends(require_owner_or_cashier)):
+    """Report the same process-stable protocol switch used by both sale writers."""
+    response.headers["Cache-Control"] = "no-store"
+    return SalesCapabilities(protocol="reserved_v1" if attempt_protocol_enabled() else "legacy")
 
 
 @router.get("/options", response_model=SalesOptions)

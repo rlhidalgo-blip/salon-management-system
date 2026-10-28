@@ -8,16 +8,28 @@ from app.modules.staff.router import router as staff_router
 from app.modules.reports.router import router as reports_router
 from app.modules.transactions.router import router as transactions_router
 from app.modules.transactions.options_router import router as sales_options_router
+from app.modules.transactions.attempt_router import router as sale_attempts_router
 
 
 app = FastAPI(title="Yab's Salon Management System API")
 install_error_handlers(app)
+
+
+@app.middleware("http")
+async def sale_attempt_no_store(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/v1/sales/attempts"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 app.include_router(auth_router)
 app.include_router(staff_router)
 app.include_router(commission_rules_router)
 app.include_router(catalog_router)
 app.include_router(transactions_router)
 app.include_router(sales_options_router)
+app.include_router(sale_attempts_router)
 app.include_router(reports_router)
 
 

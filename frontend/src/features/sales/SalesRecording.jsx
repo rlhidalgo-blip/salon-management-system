@@ -36,8 +36,17 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
   const [review, setReview] = useState(null)
   const [manualDraft, setManualDraft] = useState(false)
   const [formError, setFormError] = useState('')
+  const [referenceRecorded, setReferenceRecorded] = useState(false)
+  const [clearanceNotice, setClearanceNotice] = useState('')
   const nextLine = useRef(0)
   const submitting = useRef(false)
+
+  useEffect(() => {
+    void pendingSale.negotiate()
+    // Negotiation runs when the authenticated Sales workspace opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => { setReferenceRecorded(false) }, [pendingSale.pending?.key])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -56,7 +65,9 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
     return () => controller.abort()
   }, [reload, onRevalidateSession])
 
-  const locked = pendingSale.blocked || Boolean(pendingSale.pending) || pendingSale.working
+  const protocolReady = pendingSale.protocol === 'legacy' || pendingSale.protocol === 'reserved_v1'
+  const locked = !protocolReady || Boolean(pendingSale.openAttempt) || pendingSale.blocked ||
+    Boolean(pendingSale.pending) || pendingSale.working
   const confirmed = !pendingSale.pending && Boolean(pendingSale.sale)
   const directDraft = items.length > 0 || payment !== 'Cash' || reference.trim() !== '' || Boolean(review)
   const hasUnsentDraft = confirmed
@@ -139,6 +150,26 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
     }
   }
 
+  async function clearCancelled() {
+    if (!await pendingSale.clearCancelledAttempt()) return
+    // The cancelled sale's frozen payload and both unsent drafts must not be reused.
+    setItems([])
+    setKind('service')
+    setSearch('')
+    setPayment('Cash')
+    setReference('')
+    setReview(null)
+    setManualReset((old) => old + 1)
+    setManualVisited(false)
+    setManualDraft(false)
+    setMode('direct')
+    setSubmittedMode('direct')
+    setReferenceRecorded(false)
+    setFormError('')
+    nextLine.current = 0
+    setClearanceNotice('This tab’s cancelled pending identifier was cleared. The cancelled physical sale cannot be re-entered electronically; record only a genuinely new sale.')
+  }
+
   if (mode === 'direct' && !confirmed && loadState === 'loading' && !manualVisited) {
     return <section className="sales-recording"><p role="status">Loading sales options…</p></section>
   }
@@ -171,15 +202,46 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
         onClick={() => { setManualVisited(true); setMode('manual') }}>Manual Entry</button>
     </nav>
     {pendingSale.blocked && <p className="sales-warning" role="alert">Pending sale state cannot be safely read or saved. Do not submit another sale; contact the Owner for reconciliation.</p>}
+    {pendingSale.protocol === 'loading' && <p role="status">Checking sales protocol…</p>}
+    {pendingSale.protocol === 'error' && <div className="sales-warning" role="alert">
+      <p>{pendingSale.error || 'Sales protocol is unavailable. Electronic sales are blocked.'}</p>
+      <button type="button" onClick={() => pendingSale.negotiate()}>Retry protocol check</button>
+    </div>}
+    {clearanceNotice && <p className="sales-warning" role="status">{clearanceNotice}</p>}
+    {pendingSale.openAttempt && !pendingSale.pending && <p className="sales-warning" role="alert">
+      An open {pendingSale.openAttempt.source} reservation exists for your account
+      {pendingSale.openAttempt.direct_reference || pendingSale.openAttempt.manual_reference
+        ? ` (${pendingSale.openAttempt.direct_reference || pendingSale.openAttempt.manual_reference})` : ''}.
+      The original payload is unavailable here. Contact the Owner to investigate; do not start another electronic sale or reuse its reference.
+    </p>}
     {pendingSale.pending && <div className="sales-warning" role="alert">
       <p>{sameUser ? 'A sale is unresolved in this tab. Do not start another sale.'
         : 'This tab has an unresolved sale for another account. Contact the Owner for reconciliation.'}</p>
       {sameUser && !pendingSale.pending.payload && <p>The original sale details are unavailable after reload. Contact the Owner for reconciliation; do not create a new sale.</p>}
       {sameUser && pendingSale.status === 'checking' && <p>Checking pending sale status…</p>}
       {sameUser && pendingSale.error && <p>{pendingSale.error}</p>}
+      {sameUser && pendingSale.protocol === 'reserved_v1' && <div className="sales-actions">
+        <button type="button" disabled={pendingSale.working || pendingSale.blocked || pendingSale.status === 'checking'}
+          onClick={() => pendingSale.checkCancelledAttempt()}>Check cancelled attempt</button>
+        {pendingSale.cancelledCheck && <button type="button" disabled={pendingSale.working || pendingSale.blocked}
+          onClick={clearCancelled}>Clear matching pending identifier</button>}
+      </div>}
+      {sameUser && pendingSale.cancelledCheck && <p>Cancellation is confirmed for this exact key. Clearing this tab does not authorize a replacement of the original physical sale.</p>}
+      {sameUser && pendingSale.pending.reservationConfirmed && <p>{pendingSale.pending.mode === 'direct'
+        ? `Direct reference: ${pendingSale.pending.reference}`
+        : `Paper reference: ${pendingSale.pending.reference}`}</p>}
+      {sameUser && pendingSale.pending.mode === 'direct' && pendingSale.pending.reservationConfirmed &&
+        !pendingSale.pending.referenceAcknowledged && <div>
+          <label><input type="checkbox" checked={referenceRecorded} disabled={pendingSale.working}
+            onChange={(event) => setReferenceRecorded(event.target.checked)} />
+            I recorded this Direct reference on the physical receipt/payment evidence.</label>
+          <button type="button" disabled={!referenceRecorded || pendingSale.working}
+            onClick={() => pendingSale.acknowledgeReference(csrfToken)}>Submit reserved sale</button>
+        </div>}
       {sameUser && <div className="sales-actions">
         <button type="button" disabled={pendingSale.working || pendingSale.status === 'checking'} onClick={() => pendingSale.check()}>Check status</button>
-        {pendingSale.pending.payload && <button type="button" disabled={pendingSale.working || pendingSale.status === 'checking'}
+        {pendingSale.pending.payload && !pendingSale.cancelledCheck && <button type="button" disabled={pendingSale.working || pendingSale.status === 'checking' ||
+          (pendingSale.pending.mode === 'direct' && pendingSale.pending.reservationConfirmed && !pendingSale.pending.referenceAcknowledged)}
           onClick={() => pendingSale.retry(csrfToken)}>Retry exact sale</button>}
       </div>}
     </div>}
