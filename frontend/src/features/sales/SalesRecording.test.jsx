@@ -74,6 +74,11 @@ function add(name, kind = 'service') {
   fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Add ${name},`) }))
 }
 
+function currentSaleNames() {
+  return [...screen.getByRole('region', { name: 'Current Sale' }).querySelectorAll('.sales-line-name')]
+    .map((name) => name.textContent)
+}
+
 function manilaMinute() {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit',
     day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
@@ -815,7 +820,7 @@ it('warns before leaving an unsent Direct draft; cancel preserves it and confirm
   const prompt = screen.getByRole('dialog', { name: 'Leave Sales?' })
   expect(screen.queryByRole('heading', { name: 'Transaction History' })).toBeNull()
   fireEvent.click(within(prompt).getByRole('button', { name: 'Keep draft' }))
-  expect(screen.getByText('1. Cut')).toBeTruthy()
+  expect(currentSaleNames()).toEqual(['Cut'])
   fireEvent.click(screen.getByRole('button', { name: 'History' }))
   fireEvent.click(within(screen.getByRole('dialog', { name: 'Leave Sales?' }))
     .getByRole('button', { name: 'Discard draft and leave' }))
@@ -846,7 +851,7 @@ it('preserves Direct and Manual unsent drafts independently across mode switches
   await manualReady()
   fireEvent.change(screen.getByLabelText('Paper reference'), { target: { value: 'PAPER-20261023-001' } })
   fireEvent.click(screen.getByRole('button', { name: 'Direct Sale' }))
-  expect(screen.getByText('1. Cut')).toBeTruthy()
+  expect(currentSaleNames()).toEqual(['Cut'])
   fireEvent.click(screen.getByRole('button', { name: 'Manual Entry' }))
   expect(screen.getByLabelText('Paper reference').value).toBe('PAPER-20261023-001')
   expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions/manual')).toBe(false)
@@ -894,7 +899,7 @@ it.each([200, 201])('confirms Manual POST %i with backend totals, then clears on
   expect(screen.getByLabelText('Paper reference').value).toBe('')
   expect(screen.getByText('No items added yet.')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Direct Sale' }))
-  expect(screen.getByText('1. Cut')).toBeTruthy()
+  expect(currentSaleNames()).toEqual(['Cut'])
   expect(fetch.mock.calls.filter(([url]) => url === '/api/v1/transactions/manual')).toHaveLength(1)
 })
 
@@ -967,7 +972,7 @@ it('validates Staff, one-unit lines, variable price, and GCash before review', a
   expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
 })
 
-it('defaults new Cashier services only and keeps each line independently assignable', async () => {
+it('defaults new Cashier services and products while allowing per-line uncredited products', async () => {
   const staffOptions = { ...options, staff: [...options.staff, { id: 8, name: 'Ben', role: 'Barber' }] }
   fetch.mockImplementation((url) => Promise.resolve(url.endsWith('/me') ? reply(200, cashier)
     : url === '/api/v1/sales/options' ? reply(200, staffOptions)
@@ -982,13 +987,17 @@ it('defaults new Cashier services only and keeps each line independently assigna
   fireEvent.change(defaultStaff, { target: { value: '8' } })
   add('Color')
   add('Oil', 'product')
-  expect(screen.getAllByLabelText('Staff').map((field) => field.value)).toEqual(['4', '8', '8', ''])
-  expect(screen.getByRole('region', { name: 'Current Sale' }).querySelectorAll('.sales-line-price')).toHaveLength(3)
+  expect(screen.getAllByLabelText('Staff').map((field) => field.value)).toEqual(['4', '8', '8', '8'])
+  fireEvent.change(screen.getAllByLabelText('Staff')[3], { target: { value: '' } })
+  add('Oil', 'product')
+  expect(screen.getAllByLabelText('Staff').map((field) => field.value)).toEqual(['4', '8', '8', '', '8'])
+  expect(screen.getByRole('region', { name: 'Current Sale' }).querySelectorAll('.sales-line-price')).toHaveLength(4)
   fireEvent.click(screen.getByRole('button', { name: 'Review sale' }))
   expect(screen.getByText('Cut — Ana')).toBeTruthy()
   expect(screen.getByText('Cut — Ben')).toBeTruthy()
   expect(screen.getByText('Color — Ben')).toBeTruthy()
   expect(screen.getByText('Oil — No credited Staff')).toBeTruthy()
+  expect(screen.getByText('Oil — Ben')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
   await screen.findByText('Sale Confirmed')
   const post = fetch.mock.calls.find(([url]) => url === '/api/v1/transactions')
@@ -997,6 +1006,7 @@ it('defaults new Cashier services only and keeps each line independently assigna
     { service_id: 5, staff_id: 8, selling_price: '101.00' },
     { service_id: 6, staff_id: 8, selling_price: '120.00' },
     { product_id: 7, selling_price: '80.25' },
+    { product_id: 7, staff_id: 8, selling_price: '80.25' },
   ])
 })
 
@@ -1222,7 +1232,7 @@ it('searches active catalog rows and preserves sale lines across item tabs', asy
   fireEvent.click(screen.getByRole('button', { name: 'Add Cut, ₱101.00' }))
   fireEvent.click(screen.getByRole('button', { name: 'Products' }))
   expect(screen.getByRole('button', { name: 'Products' }).getAttribute('aria-pressed')).toBe('true')
-  expect(screen.getByText('1. Cut')).toBeTruthy()
+  expect(currentSaleNames()).toEqual(['Cut'])
   expect(search.value).toBe('')
   fireEvent.change(search, { target: { value: 'nothing' } })
   expect(screen.getByText('No items match your search.')).toBeTruthy()
@@ -1238,8 +1248,12 @@ it('adds repeated clicks as separate units and updates the provisional total on 
   const cut = screen.getByRole('button', { name: 'Add Cut, ₱101.00' })
   fireEvent.click(cut)
   fireEvent.click(cut)
-  expect(screen.getByText('1. Cut')).toBeTruthy()
-  expect(screen.getByText('2. Cut')).toBeTruthy()
+  expect(currentSaleNames()).toEqual(['Cut', 'Cut'])
+  expect(screen.getByText('2 items')).toBeTruthy()
+  const remove = screen.getByRole('button', { name: 'Remove Cut line 1' })
+  expect(remove.textContent).toBe('×')
+  expect(screen.queryByText('Remove')).toBeNull()
+  expect(within(screen.getByRole('region', { name: 'Current Sale' })).queryByText('Staff')).toBeNull()
   expect(screen.getAllByLabelText('Staff')).toHaveLength(2)
   expect(screen.getByText('₱202.00')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Remove Cut line 1' }))
@@ -1306,7 +1320,7 @@ it('shows long catalog names and a clear empty catalog state without clipping th
   await ready()
   expect(screen.getByRole('button', { name: `Add ${longName}, ₱200.00` })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: `Add ${longName}, ₱200.00` }))
-  expect(screen.getByText(`1. ${longName}`)).toBeTruthy()
+  expect(currentSaleNames()).toEqual([longName])
   fireEvent.click(screen.getByRole('button', { name: 'Products' }))
   expect(screen.getByText('No active products are available.')).toBeTruthy()
 })

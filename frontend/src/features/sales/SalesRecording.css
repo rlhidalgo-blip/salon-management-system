@@ -107,11 +107,27 @@
 .sales-recording--cashier .sales-default-staff,
 .sales-recording--cashier .sales-search-label { margin-bottom: 0.6rem; }
 .sales-recording--cashier .sales-catalog-item span:last-child { flex: initial; }
-.sales-recording--cashier .sales-line-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
-.sales-recording--cashier .sales-line-price { grid-column: 2; grid-row: 1; }
-.sales-recording--cashier .sales-line-heading button { grid-column: 2; grid-row: 2; justify-self: end; }
-.sales-recording--cashier .sales-line-fields { grid-template-columns: minmax(0, 1fr); }
-.sales-recording--cashier .sales-line-fields select { max-width: 100%; }
+.sales-recording--cashier .sales-current--cashier { padding: 0.8rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); }
+.sales-current--cashier .sales-current-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.sales-current--cashier .sales-current-heading h2 { margin: 0; }
+.sales-current--cashier .sales-current-heading > span { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+.sales-current--cashier .sales-line--cashier { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 0.4rem; padding: 0.6rem 0 0.35rem; }
+.sales-current--cashier .sales-line-name { min-width: 0; overflow-wrap: anywhere; }
+.sales-current--cashier .sales-line-price { grid-column: 2; grid-row: 1; color: var(--text); text-align: right; }
+.sales-current--cashier .sales-inline-price { grid-column: 2; grid-row: 1; display: inline-flex; align-items: center; justify-self: end; gap: 0.1rem; min-width: 0; font-weight: 600; }
+.sales-current--cashier .sales-inline-price input { width: 4.8rem; min-height: 2.75rem; padding: 0; border: 0; background: transparent; color: var(--text); text-align: right; font-weight: 600; }
+.sales-current--cashier .sales-inline-price input:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 2px; border-radius: 0.2rem; }
+.sales-current--cashier .sales-inline-staff { grid-column: 1; grid-row: 2; display: inline-grid; grid-template-columns: 0.9rem minmax(0, auto) 0.9rem; align-items: center; justify-self: start; column-gap: 0.2rem; min-width: 0; max-width: min(100%, 11rem); color: var(--muted); font-size: 0.8rem; font-weight: 400; }
+.sales-current--cashier .sales-inline-staff svg { width: 0.9rem; height: 0.9rem; flex: none; pointer-events: none; }
+.sales-current--cashier .sales-inline-staff select { width: auto; max-width: 100%; min-width: 1.5rem; min-height: 2.75rem; padding: 0 0.1rem; border: 0; appearance: none; field-sizing: content; background: transparent; color: var(--muted); font-size: inherit; line-height: normal; cursor: pointer; }
+.sales-current--cashier .sales-inline-staff select:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 2px; border-radius: 0.2rem; }
+.sales-recording .sales-current--cashier .sales-remove-icon { grid-column: 2; grid-row: 2; justify-self: end; width: 2.75rem; min-height: 2.75rem; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 1.4rem; line-height: 1; }
+.sales-current--cashier .sales-remove-icon:hover { color: var(--text); }
+.sales-current--cashier .sales-payment { margin-top: 0.25rem; padding-top: 0.8rem; border-top: 0; }
+.sales-current--cashier .sales-total { margin-top: 0.7rem; padding-top: 0.15rem; border-top: 0; align-items: baseline; font-size: 1.05rem; font-weight: 600; }
+.sales-current--cashier .sales-total strong { color: var(--text); font-size: 1.2rem; }
+.sales-recording .sales-current--cashier .sales-review-button { min-height: 2.75rem; margin-top: 0.7rem; border-radius: 999px; }
+.sales-current--cashier .sales-review-button span { margin-left: 0.35rem; }
 @media (max-width: 760px) {
   .sales-pos-grid { grid-template-columns: minmax(0, 1fr); }
 }

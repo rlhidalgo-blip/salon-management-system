@@ -87,7 +87,7 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
   function addItem(item) {
     if (locked || review || !choices.some((choice) => choice.id === item.id)) return
     setItems((old) => [...old, { line: ++nextLine.current, kind, itemId: item.id,
-      staffId: kind === 'service' && user.role === 'Cashier' ? validDefaultStaffId : '', price: item.current_price }])
+      staffId: user.role === 'Cashier' ? validDefaultStaffId : '', price: item.current_price }])
     setFormError('')
   }
 
@@ -264,7 +264,7 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
             <option value="">Choose for new services</option>
             {(options.staff ?? []).map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
           </select>
-          <small>New services use this Staff member. Change any line below.</small>
+          <small>New items use this Staff member. Change any line below.</small>
         </label>}
         <nav className="sales-tabs" aria-label="Sale item types">
           <button type="button" aria-pressed={kind === 'service'} disabled={locked || Boolean(review)}
@@ -291,7 +291,8 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
             </button>)}
         </div>
       </section>
-      <section className="sales-surface sales-current" aria-labelledby="sales-current-title">
+      <section className={`sales-surface sales-current${user.role === 'Cashier' && !review ? ' sales-current--cashier' : ''}`}
+        aria-labelledby="sales-current-title">
         {review ? <div className="sales-review">
           <h2 id="sales-current-title">Review sale</h2>
           <ul>{review.lines.map((line, index) => <li key={index}><span>{line.name} — {line.staff}</span><span>{money(line.cents)}</span></li>)}</ul>
@@ -304,15 +305,41 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
           <div className="sales-actions"><button type="button" disabled={locked} onClick={() => setReview(null)}>Back</button>
             <button className="sales-primary" type="button" disabled={locked} aria-busy={pendingSale.working} onClick={confirm}>Confirm sale</button></div>
         </div> : <>
-          <h2 id="sales-current-title">Current Sale</h2>
+          {user.role === 'Cashier' ? <div className="sales-current-heading">
+            <h2 id="sales-current-title">Current Sale</h2>
+            <span>{items.length} {items.length === 1 ? 'item' : 'items'}</span>
+          </div> : <h2 id="sales-current-title">Current Sale</h2>}
           {items.length === 0 && <p className="sales-empty">No items added yet.</p>}
           {items.map((item, index) => {
             const catalog = (item.kind === 'service' ? options.services : options.products).find((choice) => choice.id === item.itemId)
-            return <div className="sales-line" key={item.line}>
+            return user.role === 'Cashier' ? <div className="sales-line sales-line--cashier" key={item.line}>
+              <strong className="sales-line-name" id={`sales-line-name-${item.line}`}>{catalog?.name}</strong>
+              {item.kind === 'service' && catalog?.allows_variable_price
+                ? <label className="sales-inline-price"><span aria-hidden="true">₱</span>
+                  <input type="text" inputMode="decimal" value={item.price} disabled={locked}
+                    aria-label="Selling price" aria-describedby={`sales-line-name-${item.line}`}
+                    onChange={(event) => updateItem(item.line, { price: event.target.value })} /></label>
+                : <strong className="sales-line-price">{peso(item.price)}</strong>}
+              <label className="sales-inline-staff">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                  strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="3" /><path d="M5 20v-2a7 7 0 0 1 14 0v2" /></svg>
+                <select value={item.staffId} disabled={locked}
+                  aria-label="Staff" aria-describedby={`sales-line-name-${item.line}`}
+                  onChange={(event) => updateItem(item.line, { staffId: event.target.value })}>
+                  <option value="">{item.kind === 'service' ? 'Select Staff' : 'No credited Staff'}</option>
+                  {options.staff.map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
+                </select>
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                  strokeLinecap="round" strokeLinejoin="round"><path d="m7 10 5 5 5-5" /></svg>
+              </label>
+              <button className="sales-remove-icon" type="button" disabled={locked}
+                aria-label={`Remove ${catalog?.name} line ${index + 1}`}
+                onClick={() => setItems((old) => old.filter((row) => row.line !== item.line))}>
+                <span aria-hidden="true">×</span>
+              </button>
+            </div> : <div className="sales-line" key={item.line}>
               <div className="sales-line-heading"><div><strong>{index + 1}. {catalog?.name}</strong>
                 <small>{item.kind === 'service' ? 'Service' : 'Product'} · one unit</small></div>
-                {user.role === 'Cashier' && !(item.kind === 'service' && catalog?.allows_variable_price) &&
-                  <strong className="sales-line-price">{peso(item.price)}</strong>}
                 <button type="button" disabled={locked} aria-label={`Remove ${catalog?.name} line ${index + 1}`}
                   onClick={() => setItems((old) => old.filter((row) => row.line !== item.line))}>Remove</button></div>
               <div className="sales-line-fields">
@@ -320,10 +347,9 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
                   <option value="">{item.kind === 'service' ? 'Select Staff' : 'No credited Staff'}</option>
                   {options.staff.map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
                 </select></label>
-                {(user.role !== 'Cashier' || (item.kind === 'service' && catalog?.allows_variable_price)) &&
-                  <label>Selling price<input type="text" inputMode="decimal" value={item.price}
-                    disabled={locked || !(item.kind === 'service' && catalog?.allows_variable_price)}
-                    onChange={(event) => updateItem(item.line, { price: event.target.value })} /></label>}
+                <label>Selling price<input type="text" inputMode="decimal" value={item.price}
+                  disabled={locked || !(item.kind === 'service' && catalog?.allows_variable_price)}
+                  onChange={(event) => updateItem(item.line, { price: event.target.value })} /></label>
               </div>
             </div>
           })}
@@ -333,11 +359,13 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
             {payment === 'GCash' && <label>GCash reference<input type="text" value={reference} disabled={locked}
               onChange={(event) => setReference(event.target.value)} /></label>}
           </div>
-          <div className="sales-total" aria-live="polite"><span>Provisional gross total</span>
+          <div className="sales-total" aria-live="polite"><span>{user.role === 'Cashier'
+            ? <span aria-label="Provisional gross total">Total</span> : 'Provisional gross total'}</span>
             {provisional === null ? <span>Enter valid selling prices</span> : <strong>{money(provisional)}</strong>}
           </div>
           {formError && <p className="sales-error" role="alert">{formError}</p>}
-          <button className="sales-primary sales-review-button" type="button" disabled={locked} onClick={prepareReview}>Review sale</button>
+          <button className="sales-primary sales-review-button" type="button" disabled={locked} onClick={prepareReview}
+            aria-label="Review sale">{user.role === 'Cashier' ? <>Review Sale <span aria-hidden="true">→</span></> : 'Review sale'}</button>
         </>}
       </section>
     </div>}
