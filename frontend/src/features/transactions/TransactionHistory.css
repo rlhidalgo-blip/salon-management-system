@@ -64,10 +64,12 @@
   .history-table, .history-table tbody, .history-table tr, .history-table td { display: block; width: 100%; }
   .history-table thead { display: none; }
   .history-table tr { margin: 0.55rem; padding: 0.4rem; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); }
+  .transaction-history--cashier .history-table tr { width: auto; }
   .history-table td { display: flex; justify-content: space-between; align-items: start; gap: 1rem; padding: 0.35rem 0.45rem; border: 0; }
   .history-table td:first-child, .history-table td:last-child { padding-inline: 0.45rem; }
   .history-table td::before { content: attr(data-label); font-weight: 600; }
   .history-table td:last-child { justify-content: flex-end; }
+  .transaction-history--cashier .history-table td:last-child::before { display: none; }
 }
 @media (max-width: 440px) {
   .history-detail-heading { flex-direction: column; }

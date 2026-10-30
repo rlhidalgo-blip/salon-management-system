@@ -87,15 +87,15 @@ async function manualReady() {
 
 function fillManualService() {
   const occurrence = manilaMinute()
-  fireEvent.change(screen.getByLabelText('Original Manila date and time'), { target: { value: occurrence } })
+  fireEvent.change(screen.getByLabelText('Original date & time (Manila)'), { target: { value: occurrence } })
   fireEvent.change(screen.getByLabelText('Paper reference'), { target: {
     value: ` paper-${occurrence.slice(0, 10).replaceAll('-', '')}-001 `,
   } })
   fireEvent.click(screen.getByRole('button', { name: 'Add Cut, Inactive now' }))
-  fireEvent.change(screen.getByLabelText('Credited Staff'), { target: { value: '4' } })
-  fireEvent.change(screen.getByLabelText('Original item name'), { target: { value: 'Old Cut' } })
-  fireEvent.change(screen.getByLabelText('Actual selling price'), { target: { value: '101.00' } })
-  fireEvent.change(screen.getByLabelText('Historical commission value'), { target: { value: '50.00' } })
+  fireEvent.change(screen.getByLabelText('Staff'), { target: { value: '4' } })
+  fireEvent.change(screen.getByLabelText('Name on paper'), { target: { value: 'Old Cut' } })
+  fireEvent.change(screen.getByLabelText('Price on paper'), { target: { value: '101.00' } })
+  fireEvent.change(screen.getByLabelText('Commission rate (%)'), { target: { value: '50.00' } })
   fireEvent.click(screen.getByLabelText(/I verified the original paper record/i))
 }
 
@@ -929,6 +929,11 @@ it('shows Owner Sales section without reauth and keeps management sections', asy
   await screen.findByRole('heading', { name: 'Staff Management' })
   fireEvent.click(screen.getByRole('button', { name: 'Sales' }))
   expect(await screen.findByRole('heading', { name: 'Sales Recording' })).toBeTruthy()
+  expect(screen.queryByLabelText(/Default Barber/)).toBeNull()
+  await screen.findByRole('button', { name: 'Add Cut, ₱101.00' })
+  add('Cut')
+  expect(screen.getByLabelText('Selling price').disabled).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Cut line 1' }))
   expect(fetch.mock.calls.filter(([url]) => url.endsWith('/me'))).toHaveLength(1)
   fireEvent.click(screen.getByRole('button', { name: 'Staff' }))
   expect(await screen.findByRole('heading', { name: 'Staff Management' })).toBeTruthy()
@@ -943,7 +948,8 @@ it('validates Staff, one-unit lines, variable price, and GCash before review', a
   expect(screen.getByText(/Select active Staff/)).toBeTruthy()
   const staff = screen.getAllByLabelText('Staff')
   staff.forEach((field) => fireEvent.change(field, { target: { value: '4' } }))
-  expect(screen.getAllByLabelText('Selling price').every((field) => field.disabled)).toBe(true)
+  expect(screen.queryAllByLabelText('Selling price')).toHaveLength(0)
+  expect(screen.getByRole('region', { name: 'Current Sale' }).querySelectorAll('.sales-line-price')).toHaveLength(2)
   expect(screen.getByLabelText('Payment').value).toBe('Cash')
   expect(screen.queryByText('Payment method')).toBeNull()
   fireEvent.change(screen.getByLabelText('Payment'), { target: { value: 'GCash' } })
@@ -959,6 +965,39 @@ it('validates Staff, one-unit lines, variable price, and GCash before review', a
   expect(total.parentElement.compareDocumentPosition(screen.getByText('Payment Method')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(screen.queryByText(/Final commissions and Business Share come from the server/)).toBeNull()
   expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
+})
+
+it('defaults new Cashier services only and keeps each line independently assignable', async () => {
+  const staffOptions = { ...options, staff: [...options.staff, { id: 8, name: 'Ben', role: 'Barber' }] }
+  fetch.mockImplementation((url) => Promise.resolve(url.endsWith('/me') ? reply(200, cashier)
+    : url === '/api/v1/sales/options' ? reply(200, staffOptions)
+      : url === '/api/v1/transactions' ? reply(201, sale) : reply(200, { status: 'committed', sale })))
+  await ready()
+  const defaultStaff = screen.getByLabelText(/Default Barber/)
+  expect(defaultStaff.value).toBe('')
+  fireEvent.change(defaultStaff, { target: { value: '4' } })
+  add('Cut')
+  add('Cut')
+  fireEvent.change(screen.getAllByLabelText('Staff')[1], { target: { value: '8' } })
+  fireEvent.change(defaultStaff, { target: { value: '8' } })
+  add('Color')
+  add('Oil', 'product')
+  expect(screen.getAllByLabelText('Staff').map((field) => field.value)).toEqual(['4', '8', '8', ''])
+  expect(screen.getByRole('region', { name: 'Current Sale' }).querySelectorAll('.sales-line-price')).toHaveLength(3)
+  fireEvent.click(screen.getByRole('button', { name: 'Review sale' }))
+  expect(screen.getByText('Cut — Ana')).toBeTruthy()
+  expect(screen.getByText('Cut — Ben')).toBeTruthy()
+  expect(screen.getByText('Color — Ben')).toBeTruthy()
+  expect(screen.getByText('Oil — No credited Staff')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm sale' }))
+  await screen.findByText('Sale Confirmed')
+  const post = fetch.mock.calls.find(([url]) => url === '/api/v1/transactions')
+  expect(JSON.parse(post[1].body).items).toEqual([
+    { service_id: 5, staff_id: 4, selling_price: '101.00' },
+    { service_id: 5, staff_id: 8, selling_price: '101.00' },
+    { service_id: 6, staff_id: 8, selling_price: '120.00' },
+    { product_id: 7, selling_price: '80.25' },
+  ])
 })
 
 it('submits one line per unit, confirms on lookup, and uses CSRF without browser payload storage', async () => {
@@ -1205,7 +1244,7 @@ it('adds repeated clicks as separate units and updates the provisional total on 
   expect(screen.getByText('₱202.00')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Remove Cut line 1' }))
   expect(screen.getAllByLabelText('Staff')).toHaveLength(1)
-  expect(within(screen.getByRole('region', { name: 'Current Sale' })).getByText('₱101.00')).toBeTruthy()
+  expect(within(screen.getByRole('region', { name: 'Current Sale' })).getAllByText('₱101.00')).toHaveLength(2)
   expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
 })
 
@@ -1225,7 +1264,8 @@ it('hides the numeric provisional total when a variable price is invalid', async
   fireEvent.change(price, { target: { value: '130.50' } })
   expect(screen.getByText('₱130.50')).toBeTruthy()
   add('Oil', 'product')
-  expect(screen.getAllByLabelText('Selling price')[1].disabled).toBe(true)
+  expect(screen.getAllByLabelText('Selling price')).toHaveLength(1)
+  expect(screen.getByRole('region', { name: 'Current Sale' }).querySelector('.sales-line-price').textContent).toBe('₱80.25')
 })
 
 it('formats a large provisional receipt total without submitting a sale', async () => {

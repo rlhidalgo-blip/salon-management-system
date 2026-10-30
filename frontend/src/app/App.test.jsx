@@ -53,7 +53,7 @@ describe('browser authentication flow', () => {
       ...current, user: { ...current.user, role: 'Cashier' },
     }))
     render(<App />)
-    expect(await screen.findByText('Role: Cashier')).toBeTruthy()
+    expect(await screen.findByText('Cashier')).toBeTruthy()
     expect(screen.queryByRole('region', { name: 'Staff Management' })).toBeNull()
   })
   it('verifies /me after login before showing the landing screen', async () => {
