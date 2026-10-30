@@ -89,6 +89,12 @@ def get_database_url() -> URL:
     if not 1 <= port <= 65535:
         raise ValueError("DB_PORT must be between 1 and 65535")
 
+    sslmode = os.getenv("DB_SSLMODE", "").strip().lower()
+    if sslmode and sslmode not in ("require", "verify-ca", "verify-full"):
+        raise ValueError("DB_SSLMODE must be require, verify-ca, or verify-full")
+    if values["DB_HOST"].lower().endswith(".neon.tech") and sslmode != "verify-full":
+        raise ValueError("Neon connections require DB_SSLMODE=verify-full")
+
     return URL.create(
         "postgresql+psycopg",
         username=values["DB_USER"],
@@ -96,4 +102,5 @@ def get_database_url() -> URL:
         host=values["DB_HOST"],
         port=port,
         database=values["DB_NAME"],
+        query={"sslmode": sslmode} if sslmode else {},
     )

@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from functools import lru_cache
+import os
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -12,7 +13,17 @@ from app.core.config import get_database_url
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
     """Create the engine on first use; no connection is made at import time."""
-    return create_engine(get_database_url(), pool_pre_ping=True)
+    try:
+        pool_size = int(os.getenv("DB_POOL_SIZE", "5"))
+        max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+    except ValueError as exc:
+        raise ValueError("DB pool settings must be integers") from exc
+    if not 1 <= pool_size <= 10 or not 0 <= max_overflow <= 10:
+        raise ValueError("DB pool settings are outside supported bounds")
+    return create_engine(
+        get_database_url(), pool_pre_ping=True,
+        pool_size=pool_size, max_overflow=max_overflow,
+    )
 
 
 @lru_cache(maxsize=1)
