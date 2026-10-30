@@ -1,0 +1,20 @@
+# Replace the hostname and build path for the chosen host. Keep this proxy and
+# the API on the same machine; expose only Caddy's 80/443 ports publicly.
+salon.example.com {
+    encode zstd gzip
+
+    handle /api/* {
+        reverse_proxy 127.0.0.1:8000 {
+            # Use the address observed by Caddy, never a client-supplied chain.
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host {host}
+        }
+    }
+
+    handle {
+        root * /srv/yabs/frontend/dist
+        try_files {path} /index.html
+        file_server
+    }
+}

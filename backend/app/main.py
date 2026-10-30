@@ -1,6 +1,10 @@
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException
 
 from app.core.exceptions import install_error_handlers
+from app.core.startup import validate_startup_configuration
+from app.core.static import frontend_response
 from app.modules.auth.router import router as auth_router
 from app.modules.catalog.router import router as catalog_router
 from app.modules.commissions.router import router as commission_rules_router
@@ -11,7 +15,13 @@ from app.modules.transactions.options_router import router as sales_options_rout
 from app.modules.transactions.attempt_router import router as sale_attempts_router
 
 
-app = FastAPI(title="Yab's Salon Management System API")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    validate_startup_configuration()
+    yield
+
+
+app = FastAPI(title="Yab's Salon Management System API", lifespan=lifespan)
 install_error_handlers(app)
 
 
@@ -36,3 +46,17 @@ app.include_router(reports_router)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.api_route(
+    "/api/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
+def unknown_api(path: str):
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+@app.get("/{path:path}", include_in_schema=False)
+def frontend(path: str):
+    return frontend_response(path)
