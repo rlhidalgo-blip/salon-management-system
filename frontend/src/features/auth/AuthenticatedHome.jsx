@@ -114,7 +114,7 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
           <img className="owner-logo" src="/assets/yabs-logo.png" alt="Yab's Hair and Beauty Studio" />
         </div>}
         <div className="owner-header-controls">
-          <span className="owner-role">Role: {user.role}</span>
+          <span className="owner-role">{user.role === 'Cashier' ? 'Cashier' : `Role: ${user.role}`}</span>
           <button className="landing-theme-toggle owner-theme-toggle" type="button" onClick={onToggleTheme}
             aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
             {theme === 'light' ? (

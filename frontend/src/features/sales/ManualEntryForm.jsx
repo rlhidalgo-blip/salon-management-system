@@ -27,6 +27,7 @@ const blank = () => ({ occurrence: '', reference: '', items: [], payment: 'Cash'
   gcashReference: '', verified: false, kind: 'service', review: null, error: '' })
 
 export default function ManualEntryForm({ user, disabled, active, resetToken, onSubmit, onRevalidateSession, onDraftChange }) {
+  const cashier = user.role === 'Cashier'
   const [options, setOptions] = useState(null)
   const [loadState, setLoadState] = useState('loading')
   const [reload, setReload] = useState(0)
@@ -119,7 +120,9 @@ export default function ManualEntryForm({ user, disabled, active, resetToken, on
 
   const choices = draft.kind === 'service' ? options.services : options.products
   return <div className="sales-manual">
-    <p className="sales-manual-note">Current names and active flags are reference choices only, not proof of historical validity. Verify against retained paper documentation.</p>
+    <p className="sales-manual-note">{cashier
+      ? 'Check the paper record. Current names and status do not prove past values.'
+      : 'Current names and active flags are reference choices only, not proof of historical validity. Verify against retained paper documentation.'}</p>
     {draft.review ? <section className="sales-surface sales-manual-review" aria-labelledby="manual-review-title">
       <h2 id="manual-review-title">Review Manual entry</h2>
       <dl className="sales-review-payment">
@@ -140,7 +143,7 @@ export default function ManualEntryForm({ user, disabled, active, resetToken, on
       <section className="sales-surface sales-selection" aria-labelledby="manual-selection-title">
         <h2 id="manual-selection-title">Original sale</h2>
         <div className="sales-manual-fields">
-          <label>Original Manila date and time<input type="datetime-local" value={draft.occurrence} disabled={disabled}
+          <label>{cashier ? 'Original date & time (Manila)' : 'Original Manila date and time'}<input type="datetime-local" value={draft.occurrence} disabled={disabled}
             onChange={(event) => change({ occurrence: event.target.value })} /></label>
           <label>Paper reference<input type="text" value={draft.reference} placeholder="PAPER-YYYYMMDD-NNN" disabled={disabled}
             onChange={(event) => change({ reference: event.target.value })} /></label>
@@ -167,16 +170,18 @@ export default function ManualEntryForm({ user, disabled, active, resetToken, on
               <button type="button" disabled={disabled} aria-label={`Remove Manual line ${index + 1}`}
                 onClick={() => change({ items: draft.items.filter((row) => row.line !== item.line) })}>Remove</button></div>
             <div className="sales-manual-fields">
-              <label>Credited Staff<select value={item.staffId} disabled={disabled} onChange={(event) => changeItem(item.line, { staffId: event.target.value, commissionValue: '' })}>
+              <label>{cashier ? 'Staff' : 'Credited Staff'}<select value={item.staffId} disabled={disabled} onChange={(event) => changeItem(item.line, { staffId: event.target.value, commissionValue: '' })}>
                 <option value="">{item.kind === 'service' ? 'Select Staff' : 'No credited Staff'}</option>
                 {options.staff.map((staff) => <option value={staff.id} key={staff.id}>{staff.name}{staff.active ? '' : ' (Inactive now)'}</option>)}
               </select></label>
-              <label>Original item name<input type="text" value={item.originalName} disabled={disabled}
+              <label>{cashier ? 'Name on paper' : 'Original item name'}<input type="text" value={item.originalName} disabled={disabled}
                 onChange={(event) => changeItem(item.line, { originalName: event.target.value })} /></label>
-              <label>Actual selling price<input type="text" inputMode="decimal" value={item.price} disabled={disabled}
+              <label>{cashier ? 'Price on paper' : 'Actual selling price'}<input type="text" inputMode="decimal" value={item.price} disabled={disabled}
                 onChange={(event) => changeItem(item.line, { price: event.target.value })} /></label>
-              {type && <><label>Historical commission type<input type="text" value={type} readOnly /></label>
-                <label>Historical commission value<input type="text" inputMode="decimal" value={item.commissionValue} disabled={disabled}
+              {type && <>{cashier
+                ? <p className="sales-manual-policy">{type} commission from the original record</p>
+                : <label>Historical commission type<input type="text" value={type} readOnly /></label>}
+                <label>{cashier ? (type === 'Percentage' ? 'Commission rate (%)' : 'Commission amount (₱)') : 'Historical commission value'}<input type="text" inputMode="decimal" value={item.commissionValue} disabled={disabled}
                   onChange={(event) => changeItem(item.line, { commissionValue: event.target.value })} /></label></>}
             </div>
           </div>

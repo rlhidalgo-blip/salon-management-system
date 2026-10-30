@@ -46,16 +46,16 @@ function Summary({ data }) {
   </dl>
 }
 
-function Item({ item }) {
+function Item({ item, owner }) {
   return <li className="history-item">
     <div className="history-item-heading">
       <strong>{item.item_name_snapshot}</strong><strong>{money(item.selling_price)}</strong>
     </div>
     <p>{item.staff_id == null ? 'No credited Staff' : item.staff_name
-      ? `Credited Staff: ${item.staff_name} (current name)`
+      ? owner ? `Credited Staff: ${item.staff_name} (current name)` : `Staff: ${item.staff_name}`
       : `Credited Staff: Staff #${item.staff_id}`}</p>
     <dl className="history-item-finances">
-      <div><dt>Commission rule snapshot</dt><dd>{item.commission_type_snapshot == null
+      <div><dt>{owner ? 'Commission rule snapshot' : 'Commission at sale'}</dt><dd>{item.commission_type_snapshot == null
         ? 'None' : `${item.commission_type_snapshot} · ${item.commission_type_snapshot === 'Percentage'
           ? `${item.commission_value_snapshot}%` : money(item.commission_value_snapshot)}`}</dd></div>
       <div><dt>Staff Commission</dt><dd>{money(item.staff_commission)}</dd></div>
@@ -237,7 +237,7 @@ export default function TransactionHistory({ user, csrfToken, onRevalidateSessio
     }
   }
 
-  return <section className="transaction-history" aria-labelledby="history-title">
+  return <section className={`transaction-history${owner ? '' : ' transaction-history--cashier'}`} aria-labelledby="history-title">
     <header className="history-heading">
       <h1 id="history-title">Transaction History</h1>
       <p>{owner ? 'Review current and historical sales.' : 'Today’s Manila-date sales.'}</p>
@@ -258,7 +258,8 @@ export default function TransactionHistory({ user, csrfToken, onRevalidateSessio
             : <table className="history-table">
               <thead><tr><th scope="col">Transaction</th><th scope="col">Manila time</th>
                 <th scope="col">Status</th><th scope="col">Payment</th><th scope="col">Gross Sales</th>
-                <th scope="col">Staff Commission</th><th scope="col">Business Share</th><th scope="col">Action</th></tr></thead>
+                <th scope="col">Staff Commission</th><th scope="col">Business Share</th>
+                <th scope="col" aria-label={owner ? undefined : 'View transaction'}>{owner ? 'Action' : null}</th></tr></thead>
               <tbody>{currentList.items.map((row) => <tr key={row.id}>
                 <td data-label="Transaction">#{row.id}</td>
                 <td data-label="Manila time">{time(row.date_time)}</td>
@@ -267,7 +268,7 @@ export default function TransactionHistory({ user, csrfToken, onRevalidateSessio
                 <td data-label="Gross Sales" className="history-money">{money(row.gross_sales)}</td>
                 <td data-label="Staff Commission" className="history-money">{money(row.total_staff_commission)}</td>
                 <td data-label="Business Share" className="history-money">{money(row.total_business_share)}</td>
-                <td data-label="Action"><button type="button" onClick={() => view(row.id)}
+                <td data-label={owner ? 'Action' : ''}><button type="button" onClick={() => view(row.id)}
                   aria-label={`View transaction #${row.id}`}>View</button></td>
               </tr>)}</tbody>
             </table>}
@@ -291,7 +292,7 @@ export default function TransactionHistory({ user, csrfToken, onRevalidateSessio
           <h2>Transaction #{currentDetail.record.id}</h2>
           <p>{time(currentDetail.record.date_time)} · Business date {currentDetail.record.business_date}</p>
         </div><Status value={currentDetail.record.status} /></div>
-        <ul className="history-items">{currentDetail.record.items.map((item) => <Item key={item.id} item={item} />)}</ul>
+        <ul className="history-items">{currentDetail.record.items.map((item) => <Item key={item.id} item={item} owner={owner} />)}</ul>
         <Summary data={currentDetail.record} />
         <dl className="history-metadata">
           <div><dt>Payment method</dt><dd>{currentDetail.record.payment_method}</dd></div>

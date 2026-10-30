@@ -29,6 +29,7 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
   const [loadState, setLoadState] = useState('loading')
   const [reload, setReload] = useState(0)
   const [items, setItems] = useState([])
+  const [defaultStaffId, setDefaultStaffId] = useState('')
   const [kind, setKind] = useState('service')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState('Cash')
@@ -76,6 +77,7 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
   useLayoutEffect(() => { onDraftChange?.(hasUnsentDraft) }, [hasUnsentDraft, onDraftChange])
   const sameUser = pendingSale.pending?.userId === user.id
   const choices = kind === 'service' ? options?.services ?? [] : options?.products ?? []
+  const validDefaultStaffId = options?.staff?.some((staff) => String(staff.id) === defaultStaffId) ? defaultStaffId : ''
   const visibleChoices = choices.filter((item) => item.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
   const provisional = items.reduce((total, item) => {
     const cents = priceCents(item.price)
@@ -85,7 +87,7 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
   function addItem(item) {
     if (locked || review || !choices.some((choice) => choice.id === item.id)) return
     setItems((old) => [...old, { line: ++nextLine.current, kind, itemId: item.id,
-      staffId: '', price: item.current_price }])
+      staffId: kind === 'service' && user.role === 'Cashier' ? validDefaultStaffId : '', price: item.current_price }])
     setFormError('')
   }
 
@@ -171,9 +173,10 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
   }
 
   if (mode === 'direct' && !confirmed && loadState === 'loading' && !manualVisited) {
-    return <section className="sales-recording"><p role="status">Loading sales options…</p></section>
+    return <section className={`sales-recording${user.role === 'Cashier' ? ' sales-recording--cashier' : ''}`}><p role="status">Loading sales options…</p></section>
   }
-  return <section className="sales-recording" aria-labelledby={confirmed ? 'sales-confirmed-title' : 'sales-title'}>
+  return <section className={`sales-recording${user.role === 'Cashier' ? ' sales-recording--cashier' : ''}`}
+    aria-labelledby={confirmed ? 'sales-confirmed-title' : 'sales-title'}>
     {confirmed ? <div className="sales-result" role="status">
       <div className="sales-result-heading">
         <svg className="sales-success-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -193,8 +196,10 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
         onClick={newSale}>New Sale</button>
     </div> : <>
     <div className="sales-heading"><h1 id="sales-title">Sales Recording</h1>
-      <p>{mode === 'direct' ? 'Record a completed, current-day sale. Each line is one unit.'
-        : 'Enter a paper-verified original sale. Each line is one unit.'}</p></div>
+      <p>{user.role === 'Cashier'
+        ? mode === 'direct' ? "Record today's sale." : 'Enter a sale from the paper log.'
+        : mode === 'direct' ? 'Record a completed, current-day sale. Each line is one unit.'
+          : 'Enter a paper-verified original sale. Each line is one unit.'}</p></div>
     <nav className="sales-tabs sales-mode-tabs" aria-label="Sale entry mode">
       <button type="button" aria-pressed={mode === 'direct'} disabled={locked}
         onClick={() => setMode('direct')}>Direct Sale</button>
@@ -253,6 +258,14 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
     {mode === 'direct' && loadState === 'ready' && <div className="sales-pos-grid">
       <section className="sales-surface sales-selection" aria-labelledby="sales-selection-title">
         <h2 id="sales-selection-title">Select Items</h2>
+        {user.role === 'Cashier' && <label className="sales-default-staff">Default Barber
+          <select value={validDefaultStaffId} disabled={locked || Boolean(review)}
+            onChange={(event) => setDefaultStaffId(event.target.value)}>
+            <option value="">Choose for new services</option>
+            {(options.staff ?? []).map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
+          </select>
+          <small>New services use this Staff member. Change any line below.</small>
+        </label>}
         <nav className="sales-tabs" aria-label="Sale item types">
           <button type="button" aria-pressed={kind === 'service'} disabled={locked || Boolean(review)}
             onClick={() => { setKind('service'); setSearch('') }}>Services</button>
@@ -298,6 +311,8 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
             return <div className="sales-line" key={item.line}>
               <div className="sales-line-heading"><div><strong>{index + 1}. {catalog?.name}</strong>
                 <small>{item.kind === 'service' ? 'Service' : 'Product'} · one unit</small></div>
+                {user.role === 'Cashier' && !(item.kind === 'service' && catalog?.allows_variable_price) &&
+                  <strong className="sales-line-price">{peso(item.price)}</strong>}
                 <button type="button" disabled={locked} aria-label={`Remove ${catalog?.name} line ${index + 1}`}
                   onClick={() => setItems((old) => old.filter((row) => row.line !== item.line))}>Remove</button></div>
               <div className="sales-line-fields">
@@ -305,9 +320,10 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
                   <option value="">{item.kind === 'service' ? 'Select Staff' : 'No credited Staff'}</option>
                   {options.staff.map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
                 </select></label>
-                <label>Selling price<input type="text" inputMode="decimal" value={item.price}
-                  disabled={locked || !(item.kind === 'service' && catalog?.allows_variable_price)}
-                  onChange={(event) => updateItem(item.line, { price: event.target.value })} /></label>
+                {(user.role !== 'Cashier' || (item.kind === 'service' && catalog?.allows_variable_price)) &&
+                  <label>Selling price<input type="text" inputMode="decimal" value={item.price}
+                    disabled={locked || !(item.kind === 'service' && catalog?.allows_variable_price)}
+                    onChange={(event) => updateItem(item.line, { price: event.target.value })} /></label>}
               </div>
             </div>
           })}

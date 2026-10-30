@@ -32,6 +32,8 @@
 .sales-tabs button { background: var(--background); }
 .sales-tabs button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #2B2723; font-weight: 600; }
 .sales-search-label { max-width: 100%; margin-bottom: 0.75rem; }
+.sales-default-staff { margin-bottom: 0.75rem; }
+.sales-default-staff small { color: var(--muted); font-size: 0.78rem; font-weight: 400; line-height: 1.35; }
 .sales-search-field { display: block; position: relative; }
 .sales-search-field svg { position: absolute; left: 0.75rem; top: 50%; width: 1.1rem; height: 1.1rem; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .sales-search-field input { padding-left: 2.35rem; }
@@ -45,6 +47,7 @@
 .sales-line-heading > div { min-width: 0; }
 .sales-line-heading strong { overflow-wrap: anywhere; }
 .sales-line-heading small { display: block; margin-top: 0.2rem; color: var(--muted); }
+.sales-line-price { color: var(--accent-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sales-line-heading button { flex: none; }
 .sales-line-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.55rem; margin-top: 0.5rem; }
 .sales-line-fields label { min-width: 0; }
@@ -85,6 +88,7 @@
 .sales-manual-note { margin: 0 0 0.75rem; color: var(--muted); }
 .sales-manual-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; margin-bottom: 0.65rem; }
 .sales-manual-fields label { min-width: 0; }
+.sales-manual-policy { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 0.8rem; }
 .sales-manual-attestation { display: flex !important; align-items: start; gap: 0.55rem !important; margin-top: 0.85rem; font-weight: 400 !important; }
 .sales-manual-attestation input { width: 1.2rem; min-width: 1.2rem; min-height: 1.2rem; height: 1.2rem; margin: 0.15rem 0 0; }
 .sales-manual-review { width: min(100%, 40rem); margin-inline: auto; }
@@ -94,6 +98,20 @@
 .sales-manual-review-items li strong { min-width: 0; overflow-wrap: anywhere; }
 .sales-manual-review-items li span { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .sales-manual-review-items li small { display: block; margin-top: 0.2rem; color: var(--muted); overflow-wrap: anywhere; }
+.sales-recording--cashier .sales-catalog-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+.sales-recording--cashier .sales-catalog-item { flex-direction: column; justify-content: center; gap: 0.2rem; min-width: 0; min-height: 4.25rem; padding: 0.6rem; text-align: center; }
+.sales-recording--cashier h1 { font-size: 1.55rem; }
+.sales-recording--cashier h2 { margin-bottom: 0.55rem; font-size: 1.2rem; }
+.sales-recording--cashier .sales-heading p { margin: 0.2rem 0 0.6rem; }
+.sales-recording--cashier .sales-mode-tabs { margin: 0.2rem 0 0.6rem; }
+.sales-recording--cashier .sales-default-staff,
+.sales-recording--cashier .sales-search-label { margin-bottom: 0.6rem; }
+.sales-recording--cashier .sales-catalog-item span:last-child { flex: initial; }
+.sales-recording--cashier .sales-line-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.sales-recording--cashier .sales-line-price { grid-column: 2; grid-row: 1; }
+.sales-recording--cashier .sales-line-heading button { grid-column: 2; grid-row: 2; justify-self: end; }
+.sales-recording--cashier .sales-line-fields { grid-template-columns: minmax(0, 1fr); }
+.sales-recording--cashier .sales-line-fields select { max-width: 100%; }
 @media (max-width: 760px) {
   .sales-pos-grid { grid-template-columns: minmax(0, 1fr); }
 }
@@ -101,4 +119,7 @@
   .sales-line-fields { grid-template-columns: minmax(0, 1fr); }
   .sales-manual-fields { grid-template-columns: minmax(0, 1fr); }
   .sales-review li, .sales-summary > div { align-items: start; }
+  .sales-recording--cashier .sales-surface { padding: 0.75rem; }
+  .sales-recording--cashier .sales-catalog-list { gap: 0.4rem; }
+  .sales-recording--cashier .sales-catalog-item { padding: 0.5rem 0.3rem; }
 }
