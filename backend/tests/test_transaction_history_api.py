@@ -112,13 +112,16 @@ def test_owner_history_stable_bounded_pagination_and_past_date(api):
     assert first.status_code == 200
     assert first.headers["cache-control"] == "no-store"
     assert [row["id"] for row in first.json()["items"]] == [1]
+    assert "daily_number" not in first.json()["items"][0]
     cursor = first.json()["next_cursor"]
     second = client.get("/api/v1/transactions", params={"limit": 1, "cursor": cursor})
     assert second.status_code == 200, second.json()
     assert [row["id"] for row in second.json()["items"]] == [2]
+    assert "daily_number" not in second.json()["items"][0]
     assert second.json()["next_cursor"] is None
     past = client.get("/api/v1/transactions?business_date=2026-10-22")
     assert [row["id"] for row in past.json()["items"]] == [3]
+    assert "daily_number" not in past.json()["items"][0]
     assert past.json()["items"][0]["total_business_share"] == "45.00"
     assert client.get("/api/v1/transactions?limit=101").status_code == 422
     assert client.get("/api/v1/transactions?cursor=not-valid").status_code == 422
@@ -179,19 +182,77 @@ def test_history_orders_occurrence_before_id(api):
     assert [row["id"] for row in response.json()["items"]] == [9, 1, 2]
 
 
+def test_cashier_daily_numbers_cover_manual_voids_pages_and_backdated_insert(api):
+    client, factory, app, _monkeypatch = api
+    with factory.begin() as session:
+        session.add_all([
+            Transaction(id=4, date_time=datetime(2026, 10, 22, 17, 1, tzinfo=timezone.utc),
+                        business_date=date(2026, 10, 23), recorded_by_user_id=3,
+                        entry_source="Manual", manual_reference="PAPER-20261023-001",
+                        payment_method="Cash", status="Completed"),
+            Transaction(id=5, date_time=datetime(2026, 10, 22, 17, 2, tzinfo=timezone.utc),
+                        business_date=date(2026, 10, 23), recorded_by_user_id=2,
+                        entry_source="Direct", payment_method="Cash", status="Voided",
+                        void_reason="Synthetic error", voided_by_user_id=1,
+                        voided_at=datetime(2026, 10, 22, 17, 3, tzinfo=timezone.utc)),
+        ])
+        for row_id in (4, 5):
+            session.add(TransactionItem(
+                id=row_id, transaction_id=row_id, service_id=1, staff_id=1,
+                item_name_snapshot="Synthetic Item", selling_price=Decimal("100.00"),
+                commission_type_snapshot="Percentage", commission_value_snapshot=Decimal("50.00"),
+                staff_commission=Decimal("50.00"), business_share=Decimal("50.00"),
+            ))
+    _cashier(app)
+    seen = []
+    cursor = None
+    while True:
+        params = {"limit": 2}
+        if cursor:
+            params["cursor"] = cursor
+        response = client.get("/api/v1/transactions", params=params)
+        assert response.status_code == 200, response.json()
+        seen.extend((row["id"], row["daily_number"], row["status"])
+                    for row in response.json()["items"])
+        cursor = response.json()["next_cursor"]
+        if cursor is None:
+            break
+    assert seen == [(1, 1, "Completed"), (2, 2, "Completed"),
+                    (4, 3, "Completed"), (5, 4, "Voided")]
+    assert client.get("/api/v1/transactions/4").json()["daily_number"] == 3
+    _cashier(app, user_id=3)
+    assert client.get("/api/v1/transactions/5").json()["daily_number"] == 4
+    with factory.begin() as session:
+        session.add(Transaction(id=9, date_time=datetime(2026, 10, 22, 16, 59, tzinfo=timezone.utc),
+                                business_date=date(2026, 10, 23), recorded_by_user_id=1,
+                                entry_source="Manual", manual_reference="PAPER-20261023-002",
+                                payment_method="Cash", status="Completed"))
+        session.add(TransactionItem(id=9, transaction_id=9, service_id=1, staff_id=1,
+                                    item_name_snapshot="Backdated Item", selling_price=Decimal("100.00"),
+                                    commission_type_snapshot="Percentage",
+                                    commission_value_snapshot=Decimal("50.00"),
+                                    staff_commission=Decimal("50.00"), business_share=Decimal("50.00")))
+    refreshed = client.get("/api/v1/transactions").json()["items"]
+    assert [(row["id"], row["daily_number"]) for row in refreshed] == [
+        (9, 1), (1, 2), (2, 3), (4, 4), (5, 5)]
+    assert client.get("/api/v1/transactions/4").json()["daily_number"] == 4
+
+
 def test_cashier_today_shared_visibility_and_financial_snapshots(api):
     client, _factory, app, _monkeypatch = api
     _cashier(app)
     listing = client.get("/api/v1/transactions")
     assert listing.status_code == 200
     assert [row["id"] for row in listing.json()["items"]] == [1, 2]
+    assert [row["daily_number"] for row in listing.json()["items"]] == [1, 2]
     for row in listing.json()["items"]:
         assert set(row) == {"id", "date_time", "business_date", "status", "payment_method",
-                            "gross_sales", "total_staff_commission", "total_business_share"}
+                            "gross_sales", "total_staff_commission", "total_business_share", "daily_number"}
         assert "gcash_reference" not in row
     detail = client.get("/api/v1/transactions/2")
     assert detail.headers["cache-control"] == "no-store"
     body = detail.json()
+    assert body["daily_number"] == 2 and body["id"] == 2
     assert body["gcash_reference"] == "synthetic-ref"
     assert body["items"][0] == {"id": 2, "item_name_snapshot": "Other Item", "selling_price": "120.00",
                                 "staff_id": 1, "staff_name": "Synthetic Stylist", "service_id": 1,
@@ -205,7 +266,8 @@ def test_cashier_today_shared_visibility_and_financial_snapshots(api):
     assert client.get("/api/v1/transactions/3").status_code == 404
     assert client.get("/api/v1/transactions?business_date=2026-10-22").status_code == 403
     _cashier(app, user_id=3)
-    assert client.get("/api/v1/transactions/1").status_code == 200
+    assert [row["daily_number"] for row in client.get("/api/v1/transactions").json()["items"]] == [1, 2]
+    assert client.get("/api/v1/transactions/1").json()["daily_number"] == 1
 
 
 def test_owner_detail_preserves_snapshots_after_catalog_change(api):
@@ -293,9 +355,11 @@ def test_manila_midnight_moves_cashier_visibility(api):
     _cashier(app)
     monkeypatch.setattr(history, "_database_time",
                         lambda _session: datetime(2026, 10, 22, 15, 59, tzinfo=timezone.utc))
-    assert [row["id"] for row in client.get("/api/v1/transactions").json()["items"]] == [3]
+    assert [(row["id"], row["daily_number"]) for row in
+            client.get("/api/v1/transactions").json()["items"]] == [(3, 1)]
     assert client.get("/api/v1/transactions/1").status_code == 404
     monkeypatch.setattr(history, "_database_time",
                         lambda _session: datetime(2026, 10, 22, 16, 0, tzinfo=timezone.utc))
-    assert [row["id"] for row in client.get("/api/v1/transactions").json()["items"]] == [1, 2]
+    assert [(row["id"], row["daily_number"]) for row in
+            client.get("/api/v1/transactions").json()["items"]] == [(1, 1), (2, 2)]
     assert client.get("/api/v1/transactions/3").status_code == 404

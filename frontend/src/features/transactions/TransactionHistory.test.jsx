@@ -6,7 +6,7 @@ import TransactionHistory from './TransactionHistory.jsx'
 
 const owner = { id: 1, username: 'synthetic_owner', role: 'Owner' }
 const cashier = { id: 2, username: 'synthetic_cashier', role: 'Cashier' }
-const row = { id: 7, date_time: '2026-10-23T02:30:00+00:00', business_date: '2026-10-23',
+const row = { id: 7, daily_number: 1, date_time: '2026-10-23T02:30:00+00:00', business_date: '2026-10-23',
   status: 'Completed', payment_method: 'GCash', gross_sales: '101.00',
   total_staff_commission: '51.00', total_business_share: '50.00' }
 const item = { id: 10, item_name_snapshot: 'Original Haircut', selling_price: '101.00',
@@ -47,6 +47,7 @@ it('shows Owner financial history, Voided status, and a server-side business-dat
   expect(within(table).getByText('₱51.00')).toBeTruthy()
   expect(within(table).getByText('₱50.00')).toBeTruthy()
   expect(within(table).getByText('Voided')).toBeTruthy()
+  expect(within(table).getByText('#7')).toBeTruthy()
   expect(within(table).getByText('Action')).toBeTruthy()
   expect(within(table).getByText(/Oct 23, 2026/)).toBeTruthy()
   expect(screen.getByLabelText('Business date')).toBeTruthy()
@@ -64,8 +65,10 @@ it('limits Cashier UI to today and shows authorized financial snapshots and GCas
   expect(within(table).getByText('₱51.00')).toBeTruthy()
   expect(within(table).getByText('₱50.00')).toBeTruthy()
   expect(screen.queryByText('synthetic-gcash-ref')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'View transaction #7' }))
-  expect(await screen.findByRole('heading', { name: 'Transaction #7' })).toBeTruthy()
+  expect(within(table).getByText('#1')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'View transaction #1' }))
+  expect(await screen.findByRole('heading', { name: 'Transaction #1' })).toBeTruthy()
+  expect(fetch.mock.calls.at(-1)[0]).toBe('/api/v1/transactions/7')
   expect(screen.getByText('Original Haircut')).toBeTruthy()
   expect(screen.getByText('Staff: Ana')).toBeTruthy()
   expect(screen.getByText('Commission at sale')).toBeTruthy()
@@ -76,6 +79,19 @@ it('limits Cashier UI to today and shows authorized financial snapshots and GCas
   expect(screen.queryByText('Paper reference')).toBeNull()
   expect(screen.queryByText('Void reason')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Void transaction' })).toBeNull()
+})
+
+it('shows server daily numbers across Cashier pages while opening details by database ID', async () => {
+  setup(cashier, (url) => url.includes('cursor=next')
+    ? reply(200, page([{ ...row, id: 9, daily_number: 2 }]))
+    : url.includes('?') ? reply(200, page([row], 'next'))
+      : reply(200, { ...detail, id: 9, daily_number: 2 }))
+  expect(await screen.findByRole('button', { name: 'View transaction #1' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  expect(await screen.findByRole('button', { name: 'View transaction #2' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'View transaction #2' }))
+  expect(await screen.findByRole('heading', { name: 'Transaction #2' })).toBeTruthy()
+  expect(fetch.mock.calls.at(-1)[0]).toBe('/api/v1/transactions/9')
 })
 
 it('shows Manual paper provenance and entry time to Owner only', async () => {
@@ -206,7 +222,7 @@ it.each([403, 404, 422, 500])('shows a retryable list error for HTTP %i', async 
 
 it('does not display a Cashier detail when the server denies access', async () => {
   setup(cashier, (url) => url.includes('?') ? reply(200, page()) : reply(404, {}))
-  fireEvent.click(await screen.findByRole('button', { name: 'View transaction #7' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'View transaction #1' }))
   expect(await screen.findByText('Transaction not found or no longer available to you.')).toBeTruthy()
   expect(screen.queryByText('Original Haircut')).toBeNull()
   expect(screen.queryByText('synthetic-gcash-ref')).toBeNull()

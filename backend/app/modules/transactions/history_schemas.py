@@ -20,7 +20,7 @@ class VoidRequest(BaseModel):
         return value
 
 
-class CashierHistoryRow(BaseModel):
+class OwnerHistoryRow(BaseModel):
     id: int
     date_time: datetime
     business_date: date
@@ -29,6 +29,15 @@ class CashierHistoryRow(BaseModel):
     gross_sales: Decimal
     total_staff_commission: Decimal
     total_business_share: Decimal
+
+
+class CashierHistoryRow(OwnerHistoryRow):
+    daily_number: int
+
+
+class OwnerHistoryPage(BaseModel):
+    items: list[OwnerHistoryRow]
+    next_cursor: str | None
 
 
 class CashierHistoryPage(BaseModel):
@@ -50,12 +59,16 @@ class CashierHistoryItem(BaseModel):
     business_share: Decimal
 
 
-class CashierHistoryDetail(CashierHistoryRow):
+class HistoryDetail(OwnerHistoryRow):
     gcash_reference: str | None
     items: list[CashierHistoryItem]
 
 
-class OwnerHistoryDetail(CashierHistoryDetail):
+class CashierHistoryDetail(HistoryDetail):
+    daily_number: int
+
+
+class OwnerHistoryDetail(HistoryDetail):
     created_at: datetime
     recorded_by_user_id: int
     entry_source: str
