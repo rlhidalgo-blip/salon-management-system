@@ -9,14 +9,14 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.core.exceptions import ApiError
 from app.modules.audit.models import AuditEvent
 from app.modules.staff.models import Staff
 from app.modules.transactions.history_schemas import (
     CashierHistoryDetail, CashierHistoryItem, CashierHistoryPage, CashierHistoryRow,
-    OwnerHistoryDetail,
+    OwnerHistoryDetail, OwnerHistoryPage, OwnerHistoryRow,
 )
 from app.modules.transactions.models import Transaction, TransactionItem
 from app.modules.transactions.service import _database_time
@@ -63,19 +63,35 @@ def _decode_cursor(cursor: str, business_date: date) -> tuple[datetime, int]:
         raise ApiError(422, "invalid_cursor", "Invalid history cursor") from None
 
 
+def _daily_numbers(business_date: date):
+    # Rank every transaction for the date before a page cursor or detail ID is applied.
+    # Direct, Manual, and Voided transactions all contribute to the display ordinal.
+    return (select(
+        Transaction.id.label("transaction_id"),
+        func.row_number().over(order_by=(Transaction.date_time.asc(), Transaction.id.asc()))
+        .label("daily_number"),
+    ).where(Transaction.business_date == business_date).subquery())
+
+
 def list_history(session: Session, *, role: str, business_date: date | None,
-                 limit: int, cursor: str | None) -> CashierHistoryPage:
+                 limit: int, cursor: str | None) -> CashierHistoryPage | OwnerHistoryPage:
     chosen = _allowed_date(session, role=role, requested=business_date)
     columns = (Transaction.id, Transaction.date_time, Transaction.business_date,
                Transaction.status, Transaction.payment_method,
                func.sum(TransactionItem.selling_price).label("gross_sales"),
                func.sum(TransactionItem.staff_commission).label("total_staff_commission"),
                func.sum(TransactionItem.business_share).label("total_business_share"))
+    if role == "Cashier":
+        numbers = _daily_numbers(chosen)
+        columns += (numbers.c.daily_number,)
     statement = (select(*columns).join(TransactionItem, TransactionItem.transaction_id == Transaction.id)
                  .where(Transaction.business_date == chosen)
                  .group_by(Transaction.id, Transaction.date_time, Transaction.business_date,
                            Transaction.status, Transaction.payment_method)
                  .order_by(Transaction.date_time.asc(), Transaction.id.asc()).limit(limit + 1))
+    if role == "Cashier":
+        statement = statement.join(numbers, numbers.c.transaction_id == Transaction.id)
+        statement = statement.group_by(numbers.c.daily_number)
     if cursor:
         when, row_id = _decode_cursor(cursor, chosen)
         statement = statement.where(or_(Transaction.date_time > when,
@@ -84,8 +100,10 @@ def list_history(session: Session, *, role: str, business_date: date | None,
     has_more = len(rows) > limit
     rows = rows[:limit]
     next_cursor = _encode_cursor(rows[-1].date_time, rows[-1].id, chosen) if has_more else None
-    return CashierHistoryPage(items=[CashierHistoryRow.model_validate(row._mapping) for row in rows],
-                              next_cursor=next_cursor)
+    page_type, row_type = ((CashierHistoryPage, CashierHistoryRow) if role == "Cashier"
+                           else (OwnerHistoryPage, OwnerHistoryRow))
+    return page_type(items=[row_type.model_validate(row._mapping) for row in rows],
+                     next_cursor=next_cursor)
 
 
 def get_history_detail(session: Session, transaction_id: int, *, role: str) -> CashierHistoryDetail | OwnerHistoryDetail:
@@ -96,9 +114,17 @@ def get_history_detail(session: Session, transaction_id: int, *, role: str) -> C
         header = transaction
     else:
         today = _today(session)
+        earlier = aliased(Transaction)
+        daily_number = (select(func.count()).select_from(earlier)
+                        .where(earlier.business_date == today,
+                               or_(earlier.date_time < Transaction.date_time,
+                                   and_(earlier.date_time == Transaction.date_time,
+                                        earlier.id <= Transaction.id)))
+                        .correlate(Transaction).scalar_subquery().label("daily_number"))
         header = session.execute(select(
             Transaction.id, Transaction.date_time, Transaction.business_date,
             Transaction.status, Transaction.payment_method, Transaction.gcash_reference,
+            daily_number,
         ).where(Transaction.id == transaction_id, Transaction.business_date == today)).one_or_none()
         if header is None:
             raise ApiError(404, "not_found", "Transaction not found")
@@ -130,7 +156,7 @@ def get_history_detail(session: Session, transaction_id: int, *, role: str) -> C
             void_reason=header.void_reason, voided_by_user_id=header.voided_by_user_id,
             voided_at=header.voided_at,
         )
-    return CashierHistoryDetail(**common)
+    return CashierHistoryDetail(**common, daily_number=header.daily_number)
 
 
 def record_rejected_void(session: Session, *, actor_user_id: int, transaction_id: int) -> None:

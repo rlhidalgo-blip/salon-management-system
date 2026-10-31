@@ -135,11 +135,14 @@ def test_postgres_history_privacy_and_void_audits(db_case):
     owner_row = next(row for row in owner_list.json()["items"] if row["id"] == transaction_id)
     cashier_row = next(row for row in cashier_list.json()["items"] if row["id"] == transaction_id)
     assert owner_row["total_staff_commission"] == "51.00"
+    assert "daily_number" not in owner_row
     assert cashier_row["total_staff_commission"] == "51.00"
+    assert cashier_row["daily_number"] == 1
     assert cashier_row["total_business_share"] == "50.00"
     assert "gcash_reference" not in cashier_row
     detail = cashier.get(f"/api/v1/transactions/{transaction_id}")
     assert detail.status_code == 200 and detail.json()["gcash_reference"] is not None
+    assert detail.json()["daily_number"] == cashier_row["daily_number"]
     assert detail.json()["items"][0]["commission_type_snapshot"] == "Percentage"
     assert detail.json()["items"][0]["commission_value_snapshot"] == "50.00"
     assert detail.json()["items"][0]["staff_commission"] == "51.00"

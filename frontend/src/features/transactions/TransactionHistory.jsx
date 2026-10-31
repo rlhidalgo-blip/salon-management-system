@@ -261,7 +261,7 @@ export default function TransactionHistory({ user, csrfToken, onRevalidateSessio
                 <th scope="col">Staff Commission</th><th scope="col">Business Share</th>
                 <th scope="col" aria-label={owner ? undefined : 'View transaction'}>{owner ? 'Action' : null}</th></tr></thead>
               <tbody>{currentList.items.map((row) => <tr key={row.id}>
-                <td data-label="Transaction">#{row.id}</td>
+                <td data-label="Transaction">#{owner ? row.id : row.daily_number}</td>
                 <td data-label="Manila time">{time(row.date_time)}</td>
                 <td data-label="Status"><Status value={row.status} /></td>
                 <td data-label="Payment">{row.payment_method}</td>
@@ -269,7 +269,7 @@ export default function TransactionHistory({ user, csrfToken, onRevalidateSessio
                 <td data-label="Staff Commission" className="history-money">{money(row.total_staff_commission)}</td>
                 <td data-label="Business Share" className="history-money">{money(row.total_business_share)}</td>
                 <td data-label={owner ? 'Action' : ''}><button type="button" onClick={() => view(row.id)}
-                  aria-label={`View transaction #${row.id}`}>View</button></td>
+                  aria-label={`View transaction #${owner ? row.id : row.daily_number}`}>View</button></td>
               </tr>)}</tbody>
             </table>}
         </div>
@@ -289,7 +289,7 @@ export default function TransactionHistory({ user, csrfToken, onRevalidateSessio
         <button type="button" onClick={() => setDetailReload((count) => count + 1)}>Try again</button></div>}
       {currentDetail.state === 'ready' && <article className="history-detail">
         <div className="history-detail-heading"><div>
-          <h2>Transaction #{currentDetail.record.id}</h2>
+          <h2>Transaction #{owner ? currentDetail.record.id : currentDetail.record.daily_number}</h2>
           <p>{time(currentDetail.record.date_time)} · Business date {currentDetail.record.business_date}</p>
         </div><Status value={currentDetail.record.status} /></div>
         <ul className="history-items">{currentDetail.record.items.map((item) => <Item key={item.id} item={item} owner={owner} />)}</ul>
