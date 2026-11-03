@@ -19,6 +19,7 @@ from app.modules.transactions.history_schemas import (
     OwnerHistoryDetail, OwnerHistoryPage, OwnerHistoryRow,
 )
 from app.modules.transactions.models import Transaction, TransactionItem
+from app.modules.transactions.schemas import SalePublic
 from app.modules.transactions.service import _database_time
 
 
@@ -42,7 +43,7 @@ def _encode_cursor(when: datetime, row_id: int, business_date: date) -> str:
     # PostgreSQL TIMESTAMPTZ is aware; SQLite's test adapter drops its offset.
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
-    payload = json.dumps([when.isoformat(), row_id, business_date.isoformat(), "asc"], separators=(",", ":"))
+    payload = json.dumps([when.isoformat(), row_id, business_date.isoformat(), "desc"], separators=(",", ":"))
     return base64.urlsafe_b64encode(payload.encode("ascii")).decode("ascii").rstrip("=")
 
 
@@ -53,7 +54,7 @@ def _decode_cursor(cursor: str, business_date: date) -> tuple[datetime, int]:
         values = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
         if (not isinstance(values, list) or len(values) != 4 or
                 type(values[1]) is not int or values[1] <= 0 or
-                values[2] != business_date.isoformat() or values[3] != "asc"):
+                values[2] != business_date.isoformat() or values[3] != "desc"):
             raise ValueError
         when = datetime.fromisoformat(values[0])
         if when.tzinfo is None:
@@ -73,6 +74,16 @@ def _daily_numbers(business_date: date):
     ).where(Transaction.business_date == business_date).subquery())
 
 
+def daily_number_for_sale(session: Session, sale: SalePublic) -> int:
+    """Read the current display ordinal after commit; never use it as a sale identifier."""
+    earlier = aliased(Transaction)
+    return session.scalar(select(func.count()).select_from(earlier).where(
+        earlier.business_date == sale.business_date,
+        or_(earlier.date_time < sale.date_time,
+            and_(earlier.date_time == sale.date_time, earlier.id <= sale.id)),
+    ))
+
+
 def list_history(session: Session, *, role: str, business_date: date | None,
                  limit: int, cursor: str | None) -> CashierHistoryPage | OwnerHistoryPage:
     chosen = _allowed_date(session, role=role, requested=business_date)
@@ -88,14 +99,14 @@ def list_history(session: Session, *, role: str, business_date: date | None,
                  .where(Transaction.business_date == chosen)
                  .group_by(Transaction.id, Transaction.date_time, Transaction.business_date,
                            Transaction.status, Transaction.payment_method)
-                 .order_by(Transaction.date_time.asc(), Transaction.id.asc()).limit(limit + 1))
+                 .order_by(Transaction.date_time.desc(), Transaction.id.desc()).limit(limit + 1))
     if role == "Cashier":
         statement = statement.join(numbers, numbers.c.transaction_id == Transaction.id)
         statement = statement.group_by(numbers.c.daily_number)
     if cursor:
         when, row_id = _decode_cursor(cursor, chosen)
-        statement = statement.where(or_(Transaction.date_time > when,
-                                        and_(Transaction.date_time == when, Transaction.id > row_id)))
+        statement = statement.where(or_(Transaction.date_time < when,
+                                        and_(Transaction.date_time == when, Transaction.id < row_id)))
     rows = session.execute(statement).all()
     has_more = len(rows) > limit
     rows = rows[:limit]

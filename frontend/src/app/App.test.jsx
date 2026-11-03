@@ -66,14 +66,14 @@ describe('browser authentication flow', () => {
     enterCredentials()
     fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3))
-    expect(screen.queryByText('Role: Owner')).toBeNull()
+    expect(screen.queryByText('Owner')).toBeNull()
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
       '/api/v1/auth/me', '/api/v1/auth/login', '/api/v1/auth/me',
     ])
     expect(fetch.mock.calls[1][1]).toMatchObject({ method: 'POST', credentials: 'same-origin' })
     expect(fetch.mock.calls[2][1].credentials).toBe('same-origin')
     verification.resolve(reply(200, current))
-    expect(await screen.findByText('Role: Owner')).toBeTruthy()
+    expect(await screen.findByText('Owner')).toBeTruthy()
     expect(screen.getByRole('img', { name: "Yab's Hair and Beauty Studio" }).getAttribute('src'))
       .toBe('/assets/yabs-logo.png')
     expect(screen.queryByRole('heading', { name: 'Signed in' })).toBeNull()
@@ -98,14 +98,14 @@ describe('browser authentication flow', () => {
     expect(screen.getByText('Checking your session…')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Sign In' })).toBeNull()
     verification.resolve(reply(200, current))
-    expect(await screen.findByText('Role: Owner')).toBeTruthy()
+    expect(await screen.findByText('Owner')).toBeTruthy()
   })
 
   it('treats an expired session as unauthenticated', async () => {
     fetch.mockResolvedValueOnce(reply(401))
     render(<App />)
     expect(await screen.findByRole('button', { name: 'Sign In' })).toBeTruthy()
-    expect(screen.queryByText('Role: Owner')).toBeNull()
+    expect(screen.queryByText('Owner')).toBeNull()
   })
 
   it('shows rate limiting without exposing account details', async () => {
@@ -124,7 +124,7 @@ describe('browser authentication flow', () => {
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Sign In' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByText('Role: Owner')).toBeTruthy()
+    expect(await screen.findByText('Owner')).toBeTruthy()
   })
 
   it('allows retry after a temporary login failure', async () => {
@@ -138,13 +138,13 @@ describe('browser authentication flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
     expect(await screen.findByText('Sign-in is temporarily unavailable. Please try again.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
-    expect(await screen.findByText('Role: Owner')).toBeTruthy()
+    expect(await screen.findByText('Owner')).toBeTruthy()
   })
 
   it('sends the in-memory CSRF token on logout and returns to login on 204', async () => {
     fetch.mockResolvedValueOnce(reply(200, current)).mockResolvedValueOnce(reply(204))
     render(<App />)
-    await screen.findByText('Role: Owner')
+    await screen.findByText('Owner')
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
     await screen.findByRole('button', { name: 'Sign In' })
     expect(fetch.mock.calls[1]).toEqual([
@@ -159,10 +159,10 @@ describe('browser authentication flow', () => {
       .mockRejectedValueOnce(new TypeError('network unavailable'))
       .mockResolvedValueOnce(reply(204))
     render(<App />)
-    await screen.findByText('Role: Owner')
+    await screen.findByText('Owner')
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
     expect(await screen.findByText('Could not sign out right now. Please try again.')).toBeTruthy()
-    expect(screen.getByText('Role: Owner')).toBeTruthy()
+    expect(screen.getByText('Owner')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
     expect(await screen.findByRole('button', { name: 'Sign In' })).toBeTruthy()
   })
@@ -170,7 +170,7 @@ describe('browser authentication flow', () => {
   it('clears the UI only when logout confirms the session is invalid', async () => {
     fetch.mockResolvedValueOnce(reply(200, current)).mockResolvedValueOnce(reply(401))
     render(<App />)
-    await screen.findByText('Role: Owner')
+    await screen.findByText('Owner')
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
     expect(await screen.findByRole('button', { name: 'Sign In' })).toBeTruthy()
   })
@@ -199,7 +199,7 @@ describe('browser authentication flow', () => {
     enterCredentials()
     fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
-    expect(await screen.findByText('Role: Owner')).toBeTruthy()
+    expect(await screen.findByText('Owner')).toBeTruthy()
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
       '/api/v1/auth/me', '/api/v1/auth/login', '/api/v1/auth/me', '/api/v1/auth/me',
     ])
@@ -217,7 +217,7 @@ describe('browser authentication flow', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Preparing…' }).closest('form'))
     expect(fetch).toHaveBeenCalledTimes(2)
     pending.resolve(reply(200, current))
-    expect(await screen.findByText('Role: Owner')).toBeTruthy()
+    expect(await screen.findByText('Owner')).toBeTruthy()
     expect(fetch).toHaveBeenCalledTimes(3)
   })
 })

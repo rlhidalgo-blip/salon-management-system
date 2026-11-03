@@ -29,6 +29,9 @@
 .history-status-completed { border-color: var(--accent-secondary); }
 .history-status-voided { color: var(--muted); }
 .history-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 0.7rem; margin-top: 0.85rem; }
+.history-pagination button { display: grid; place-items: center; width: 2.75rem; padding: 0; }
+.history-pagination button svg { width: 1.2rem; height: 1.2rem; }
+.history-pagination button:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 2px; }
 .history-pagination span { color: var(--muted); }
 .history-notice { color: var(--muted); }
 .history-back { margin-bottom: 0.8rem; }

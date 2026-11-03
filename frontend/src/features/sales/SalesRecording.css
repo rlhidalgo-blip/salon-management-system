@@ -99,14 +99,26 @@
 .sales-manual-review-items li span { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .sales-manual-review-items li small { display: block; margin-top: 0.2rem; color: var(--muted); overflow-wrap: anywhere; }
 .sales-recording--cashier .sales-catalog-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
-.sales-recording--cashier .sales-catalog-item { flex-direction: column; justify-content: center; gap: 0.2rem; min-width: 0; min-height: 4.25rem; padding: 0.6rem; text-align: center; }
+.sales-recording--cashier .sales-catalog-item { display: flex; flex-direction: column; align-items: stretch; justify-content: space-between; gap: 0.4rem; min-width: 0; min-height: 4.5rem; padding: 0.5rem; text-align: left; }
+.sales-recording--cashier .sales-catalog-name { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.sales-recording--cashier .sales-catalog-item .sales-catalog-bottom { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.25rem; flex: initial; min-width: 0; white-space: normal; }
+.sales-recording--cashier .sales-catalog-price { min-width: 0; color: var(--accent-secondary); font-size: 0.85rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sales-recording--cashier .sales-catalog-add-icon { width: 1rem; height: 1rem; color: var(--accent-secondary); }
 .sales-recording--cashier h1 { font-size: 1.55rem; }
 .sales-recording--cashier h2 { margin-bottom: 0.55rem; font-size: 1.2rem; }
 .sales-recording--cashier .sales-heading p { margin: 0.2rem 0 0.6rem; }
 .sales-recording--cashier .sales-mode-tabs { margin: 0.2rem 0 0.6rem; }
 .sales-recording--cashier .sales-default-staff,
-.sales-recording--cashier .sales-search-label { margin-bottom: 0.6rem; }
-.sales-recording--cashier .sales-catalog-item span:last-child { flex: initial; }
+.sales-recording--cashier .sales-search-label { margin-bottom: 0.5rem; }
+.sales-recording--cashier .sales-default-staff-field,
+.sales-current--cashier .sales-payment-field { display: block; position: relative; min-width: 0; }
+.sales-recording--cashier .sales-default-staff-field select,
+.sales-current--cashier .sales-payment-field select { appearance: none; padding-right: 2.5rem; }
+.sales-recording--cashier .sales-default-staff-field svg,
+.sales-current--cashier .sales-payment-field svg { position: absolute; top: 50%; right: 0.8rem; width: 1.1rem; height: 1.1rem; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.sales-recording--cashier .sales-item-tabs--cashier { display: inline-flex; flex-wrap: nowrap; gap: 0.1rem; max-width: 100%; margin-bottom: 0.5rem; padding: 0.15rem; border: 1px solid var(--border); border-radius: 0.45rem; background: var(--background); }
+.sales-recording--cashier .sales-item-tabs--cashier button { min-height: 2.75rem; padding: 0.45rem 0.8rem; border: 0; }
+.sales-recording--cashier .sales-search-accessible { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .sales-recording--cashier .sales-current--cashier { padding: 0.8rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); }
 .sales-current--cashier .sales-current-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
 .sales-current--cashier .sales-current-heading h2 { margin: 0; }

@@ -315,6 +315,8 @@ def test_sale_key_lookup_states_scope_and_validation(api, monkeypatch):
     assert committed.status_code == 200
     assert committed.json()["status"] == "committed"
     assert committed.json()["sale"]["id"] == sale.json()["id"]
+    assert "daily_number" not in sale.json()
+    assert committed.json()["daily_number"] == 1
     app.dependency_overrides[get_current_principal] = lambda: Principal(2, "test_cashier", "Cashier", "synthetic")
     assert client.get(url).json() == {"status": "not_committed_at_check", "sale": None}
     assert client.get("/api/v1/transactions/by-idempotency-key/not-a-uuid").status_code == 422
@@ -334,6 +336,46 @@ def _manual_payload():
 def _send_manual(client, payload, key=None):
     return client.post("/api/v1/transactions/manual", json=payload,
                        headers={"Idempotency-Key": str(key or uuid4())})
+
+
+def test_daily_number_is_read_after_commit_for_both_roles_and_backdated_manual(api):
+    client, _factory, app = api
+    owner_key, cashier_key, manual_key = uuid4(), uuid4(), uuid4()
+    owner_sale = _send(client, _payload(), owner_key)
+    assert owner_sale.status_code == 201 and "daily_number" not in owner_sale.json()
+    owner_url = f"/api/v1/transactions/by-idempotency-key/{owner_key}"
+    assert client.get(owner_url).json()["daily_number"] == 1
+    app.dependency_overrides[get_current_principal] = lambda: Principal(2, "test_cashier", "Cashier", "synthetic")
+    cashier_sale = _send(client, _payload(), cashier_key)
+    assert cashier_sale.status_code == 201
+    cashier_url = f"/api/v1/transactions/by-idempotency-key/{cashier_key}"
+    assert client.get(cashier_url).json()["daily_number"] == 2
+    assert _send(client, _payload(), cashier_key).status_code == 200
+    app.dependency_overrides[get_current_principal] = lambda: Principal(1, "test_owner", "Owner", "synthetic")
+    manual_sale = _send_manual(client, _manual_payload(), manual_key)
+    assert manual_sale.status_code == 201
+    assert client.get(f"/api/v1/transactions/by-idempotency-key/{manual_key}").json()["daily_number"] == 1
+    assert client.get(owner_url).json()["daily_number"] == 2
+    app.dependency_overrides[get_current_principal] = lambda: Principal(2, "test_cashier", "Cashier", "synthetic")
+    result = client.get(cashier_url).json()
+    assert result["daily_number"] == 3 and result["sale"]["id"] == cashier_sale.json()["id"]
+
+
+def test_optional_daily_number_query_failure_keeps_committed_sale(api, monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+    import app.modules.transactions.router as transaction_router
+    client, factory, _app = api
+    key = uuid4()
+    sale = _send(client, _payload(), key)
+    def fail_number(*_args):
+        raise SQLAlchemyError("synthetic display lookup failure")
+    monkeypatch.setattr(transaction_router, "daily_number_for_sale", fail_number)
+    result = client.get(f"/api/v1/transactions/by-idempotency-key/{key}")
+    assert result.status_code == 200 and result.json()["status"] == "committed"
+    assert result.json()["sale"]["id"] == sale.json()["id"]
+    assert result.json()["daily_number"] is None
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(Transaction)) == 1
 
 
 def test_owner_reconciliation_direct_cross_user_and_repeated_audit(api):

@@ -183,7 +183,9 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
           <circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" />
         </svg>
         <h1 id="sales-confirmed-title">Sale Confirmed</h1>
-        <p>Transaction #{pendingSale.sale.id}</p>
+        <p>{pendingSale.sale.daily_number == null
+          ? 'Daily number unavailable. Check History for the current display number.'
+          : `Transaction #${pendingSale.sale.daily_number}`}</p>
       </div>
       <dl className="sales-summary">
         <div><dt>Payment Method</dt><dd>{pendingSale.sale.payment_method}</dd></div>
@@ -256,28 +258,35 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
     {mode === 'direct' && loadState === 'error' && <div><p role="alert">{formError}</p>
       <button type="button" onClick={() => { setLoadState('loading'); setReload((old) => old + 1) }}>Try again</button></div>}
     {mode === 'direct' && loadState === 'ready' && <div className="sales-pos-grid">
-      <section className="sales-surface sales-selection" aria-labelledby="sales-selection-title">
-        <h2 id="sales-selection-title">Select Items</h2>
-        {user.role === 'Cashier' && <label className="sales-default-staff">Default Barber
-          <select value={validDefaultStaffId} disabled={locked || Boolean(review)}
-            onChange={(event) => setDefaultStaffId(event.target.value)}>
-            <option value="">Choose for new services</option>
-            {(options.staff ?? []).map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
-          </select>
-          <small>New items use this Staff member. Change any line below.</small>
-        </label>}
-        <nav className="sales-tabs" aria-label="Sale item types">
+      <section className="sales-surface sales-selection" aria-label={user.role === 'Cashier' ? 'Item Selection' : undefined}
+        aria-labelledby={user.role === 'Owner' ? 'sales-selection-title' : undefined}>
+        {user.role === 'Owner' && <h2 id="sales-selection-title">Select Items</h2>}
+        {user.role === 'Cashier' && <div className="sales-default-staff">
+          <span className="sales-default-staff-field">
+            <select aria-label="Default Staff" value={validDefaultStaffId} disabled={locked || Boolean(review)}
+              onChange={(event) => setDefaultStaffId(event.target.value)}>
+              <option value="">Select Staff</option>
+              {(options.staff ?? []).map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
+            </select>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+          </span>
+        </div>}
+        <nav className={`sales-tabs${user.role === 'Cashier' ? ' sales-item-tabs--cashier' : ''}`} aria-label="Sale item types">
           <button type="button" aria-pressed={kind === 'service'} disabled={locked || Boolean(review)}
             onClick={() => { setKind('service'); setSearch('') }}>Services</button>
           <button type="button" aria-pressed={kind === 'product'} disabled={locked || Boolean(review)}
             onClick={() => { setKind('product'); setSearch('') }}>Products</button>
         </nav>
-        <label className="sales-search-label">Name
+        <label className="sales-search-label">{user.role === 'Cashier'
+          ? <span className="sales-search-accessible">Search items</span> : 'Name'}
           <span className="sales-search-field">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
               <circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" />
             </svg>
-            <input type="search" placeholder="Search" value={search} disabled={locked || Boolean(review)}
+            <input type="search" placeholder={user.role === 'Cashier'
+              ? `Search ${kind === 'service' ? 'services' : 'products'}` : 'Search'}
+              value={search} disabled={locked || Boolean(review)}
               onChange={(event) => setSearch(event.target.value)} />
           </span>
         </label>
@@ -287,7 +296,17 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
             : visibleChoices.map((item) => <button className="sales-catalog-item" type="button" key={`${kind}-${item.id}`}
               disabled={locked || Boolean(review)} onClick={() => addItem(item)}
               aria-label={`Add ${item.name}, ${peso(item.current_price)}`}>
-              <span>{item.name}</span><span>{peso(item.current_price)}</span>
+              {user.role === 'Cashier' ? <>
+                <span className="sales-catalog-name">{item.name}</span>
+                <span className="sales-catalog-bottom">
+                  <span className="sales-catalog-price">{peso(item.current_price)}</span>
+                  <svg className="sales-catalog-add-icon" aria-hidden="true"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="9" /><path d="M12 8v8m-4-4h8" />
+                  </svg>
+                </span>
+              </> : <><span>{item.name}</span><span>{peso(item.current_price)}</span></>}
             </button>)}
         </div>
       </section>
@@ -354,8 +373,15 @@ export default function SalesRecording({ user, csrfToken, onRevalidateSession, p
             </div>
           })}
           <div className="sales-payment">
-            <label>Payment<select value={payment} disabled={locked} onChange={(event) => setPayment(event.target.value)}>
-              <option value="Cash">Cash</option><option value="GCash">GCash</option></select></label>
+            <label>Payment<span className={user.role === 'Cashier' ? 'sales-payment-field' : undefined}>
+              <select value={payment} disabled={locked} onChange={(event) => setPayment(event.target.value)}>
+                <option value="Cash">Cash</option><option value="GCash">GCash</option>
+              </select>
+              {user.role === 'Cashier' && <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>}
+            </span></label>
             {payment === 'GCash' && <label>GCash reference<input type="text" value={reference} disabled={locked}
               onChange={(event) => setReference(event.target.value)} /></label>}
           </div>

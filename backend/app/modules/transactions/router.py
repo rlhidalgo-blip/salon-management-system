@@ -4,6 +4,7 @@ from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Path, Query, Response
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ApiError
@@ -11,14 +12,16 @@ from app.db.session import get_db_session
 from app.modules.auth.dependencies import Principal, require_owner, require_owner_or_cashier
 from app.modules.transactions.history_schemas import VoidRequest
 from app.modules.transactions.history_service import (
-    get_history_detail, list_history, record_rejected_void, void_transaction,
+    daily_number_for_sale, get_history_detail, list_history, record_rejected_void, void_transaction,
 )
 from app.modules.transactions.manual_service import record_manual_sale
 from app.modules.transactions.attempt_feature import attempt_protocol_enabled
 from app.modules.transactions.reconciliation_service import (
     acknowledge_sale, investigate_sale, reject_acknowledgment,
 )
-from app.modules.transactions.schemas import ManualSaleCreate, SaleCreate, SalePublic, SaleKeyStatus, SaleAcknowledgment
+from app.modules.transactions.schemas import (
+    ManualSaleCreate, OwnSaleKeyStatus, SaleAcknowledgment, SaleCreate, SaleKeyStatus, SalePublic,
+)
 from app.modules.transactions.service import lookup_sale_key, record_direct_sale
 
 
@@ -73,7 +76,8 @@ def get_transaction_history(response: Response, business_date: date | None = Non
                             limit=limit, cursor=cursor)
 
 
-@router.get("/by-idempotency-key/{idempotency_key}", response_model=SaleKeyStatus)
+@router.get("/by-idempotency-key/{idempotency_key}", response_model=OwnSaleKeyStatus,
+            response_model_exclude_unset=True)
 def get_sale_key_status(idempotency_key: UUID, response: Response,
                         principal: Principal = Depends(require_owner_or_cashier),
                         session: Session = Depends(get_db_session)):
@@ -81,9 +85,18 @@ def get_sale_key_status(idempotency_key: UUID, response: Response,
     with session.begin():
         status, sale = lookup_sale_key(session, actor_user_id=principal.user_id,
                                        idempotency_key=idempotency_key)
+        daily_number = None
+        if status == "committed" and sale is not None:
+            try:
+                # A failed optional display query must not turn a committed sale into a failed sale.
+                with session.begin_nested():
+                    daily_number = daily_number_for_sale(session, sale)
+            except SQLAlchemyError:
+                pass
     if status == "processing":
         response.status_code = 202
-    return SaleKeyStatus(status=status, sale=sale)
+    return OwnSaleKeyStatus(status=status, sale=sale, **(
+        {"daily_number": daily_number} if status == "committed" else {}))
 
 
 @router.get("/{transaction_id}", response_model=None)
