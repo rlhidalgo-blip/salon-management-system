@@ -1,158 +1,86 @@
 # Yab's Salon Management System
 
-> An internal web application for Yab's Hair and Beauty Studio, designed to digitize sales recording, staff commission calculations, and business reporting.
+At my family's salon, handwritten sales logs and calculator-based commissions made busy days harder to reconcile. I began building Yab's Salon Management System to address that recurring problem while learning how to turn business requirements into a tested web application.
 
-## Why This Project Exists
+The browser-based system records completed sales, calculates Staff Commission and Business Share, and makes transaction history and reports available to the authorized Owner and Cashier. It is designed for one salon and deployed to cloud staging for synthetic testing.
 
-Yab's Hair and Beauty Studio currently relies on handwritten logbooks and manual calculations to record daily sales and determine staff commissions. These workflows take time, are prone to human error, and make historical reporting and reconciliation difficult.
+## Screenshots
 
-This project starts from a real business problem. It also serves as a learning journey in product discovery, software engineering, and AI-assisted development: understanding the business first, then building and validating a maintainable product.
+Approved, redacted staging screenshots are pending. Planned views: Cashier Sales, Transaction History, and Owner Reports. Real customer, payment, account, and financial information will not be shown.
 
-## Product Overview
+## Project status
 
-The Salon Management System is an internal, browser-based application for two primary roles:
-
-| Role | Responsibilities |
+| Area | Current status |
 | --- | --- |
-| **Owner** | Manages staff, catalog, commission rules and user accounts; reviews historical sales and reports; authorizes transaction voids and historical back-entry. |
-| **Cashier** | Records completed sales and monitors authorized transactions for the current salon business date. |
+| Core workflows | Implemented with automated backend and frontend tests; Owner and Cashier acceptance is still needed for production use |
+| Cloud deployment | Render + Neon Free staging intended for synthetic testing; staging data contents have not been independently audited here; no approved live financial use |
+| Durable sale recovery | `reserved_v1` implemented but default-disabled; activation requires a coordinated cutover |
+| Operational recovery | Backup and restore procedures and a read-only checker exist; backup/PITR coverage, alerts, and restore drills are not verified |
 
-Barbers and stylists are represented in staff and commission records but do not need individual system logins for the MVP.
+Before production use, the team must validate hosting and secrets, Owner/Cashier workflows, the chosen proxy's client-IP behavior, encrypted off-site backups and continuous WAL/PITR coverage, failure alerts, an isolated restore drill, and the 24-hour RPO/RTO targets. The [staging runbook](docs/04-development/Free%20Cloud%20Staging%20Runbook.md), [deployment and activation runbook](docs/04-development/Deployment%20and%20Activation%20Runbook.md), and [backup and restore runbook](docs/04-development/Backup%20and%20Restore%20Runbook.md) describe the planned checks; they are not evidence of completed production verification.
 
-## Business Problems and Objectives
+## Implemented MVP workflows
 
-The MVP aims to:
+| Area | Owner | Cashier |
+| --- | --- | --- |
+| Sales | Record Direct sales; enter verified paper sales for today or earlier dates | Record Direct sales; enter verified paper sales for today |
+| History | View current and historical transactions; void a completed transaction with a reason | View transactions for the current Asia/Manila business date |
+| Reports | View daily and monthly financial summaries, including staff performance | View today's daily financial summary |
+| Configuration | Manage staff, services, products, prices, and commission rules | No configuration access |
+| Recovery | Investigate sale attempts and perform Owner-only reconciliation or cancellation where enabled | Investigate their own pending sale status; escalate unresolved attempts |
 
-- Replace handwritten sales logs for normal online operations.
-- Automatically calculate staff commissions and the remaining Business Share.
-- Support completed service and product sales, including multiple items in a transaction.
-- Reduce manual calculation errors and speed up daily reconciliation.
-- Preserve original transaction prices, staff assignments, and commission amounts.
-- Provide daily and monthly reports for authorized users.
+Sales support multiple services and products, Cash or GCash payment, per-item staff attribution, and server-calculated Staff Commission and Business Share. Transaction items retain selling-price and commission snapshots. Voided transactions remain in History but are excluded from active report totals. Manual back-entry requires a paper reference and attestation that historical values were checked against retained evidence; the attestation is not independent proof.
 
-**Business Share is not net profit.** Expense tracking and payroll are outside the MVP.
+Owner and Cashier access is enforced by the API. Login uses server-managed sessions and role checks; state-changing requests retain Origin and CSRF protection. Business Share is the portion after Staff Commission, not net profit.
 
-## MVP Features
+Sale submission uses idempotency keys and pending-sale recovery safeguards. The database-backed `reserved_v1` sale-attempt protocol, including durable cancellation fences, is implemented behind a server-side feature gate. The gate defaults to **off**; activating it requires a coordinated migration and worker cutover. A daily transaction number is a display label that can change after a backdated entry. The permanent database transaction ID remains the identifier for API operations and audit references.
 
-- Secure Owner and Cashier login with role-based access control.
-- Staff, service, product, price, and commission-rule management.
-- Completed transactions with multiple service and/or product items.
-- Required staff assignment for service items; optional assignment for product items.
-- Variable service prices.
-- Cash and GCash payments, with required reference numbers for GCash.
-#NAME?
-- Daily and monthly sales reports and staff commission breakdowns.
-#NAME?
-- Current-day manual sale back-entry by Owner or Cashier; previous-day back-entry and reconciliation by Owner only.
+## Technology and architecture
 
-### Important Business Rules
+| Layer | Technology | Purpose |
+| --- | --- | --- |
+| Frontend | React, Vite, CSS | Responsive Owner and Cashier workspaces |
+| API | Python, FastAPI, Pydantic | Authentication, authorization, validation, and financial rules |
+| Persistence | PostgreSQL, SQLAlchemy 2.x, Alembic | Relational records, transactions, constraints, and versioned schema changes |
+| Testing | pytest, Vitest, React Testing Library | Backend rules, API behavior, and frontend workflows |
+| Staging | Docker, Render Free, Neon Free | One HTTPS origin serving the React build and FastAPI with an isolated staging database |
 
-- Haircut commission: **50% staff / 50% Business Share**.
-- Services using salon products: **40% staff / 60% Business Share**.
-- Product sales may have a fixed staff commission. If no staff member is assigned, no staff commission is earned for that product item.
-- **Staff Commission + Business Share = Selling Price** for each sale item.
-- **Cash Sales + GCash Sales = Gross Sales** under the approved reporting rules.
-- Record sales only after payment has been received.
-- A completed sale cannot be edited or deleted. Corrections use a new transaction; only the Owner may void an existing sale.
-- Voided sales do not contribute to active sales and commission reports.
-- Historical financial values are snapshotted and must not change when catalog prices or commission rules change.
-- Money calculations use decimal-safe arithmetic.
+The application is a modular monolith. In staging, FastAPI serves the built React app and its `/api/v1` endpoints on one HTTPS origin; the frontend never connects directly to PostgreSQL. Local development uses Vite's API proxy.
 
-## Out of Scope for the MVP
-
-Inventory management, appointments, customer profiles and history, loyalty programs, expense tracking, payroll, multi-branch operations, native mobile apps, offline application synchronization, AI forecasting, and advanced business intelligence.
-
-## Technology Stack
-
-| Layer | Approved Technology |
-| --- | --- |
-| Frontend | React |
-| Backend | Python + FastAPI |
-| Database | PostgreSQL |
-| ORM | SQLAlchemy 2.x (synchronous) |
-| Database migrations | Alembic |
-| API | Versioned REST API (`/api/v1`) using JSON |
-| Authentication | PostgreSQL-backed server-managed sessions with secure HttpOnly cookies |
-| Version control | Git and GitHub |
-| Production deployment | Online-only cloud deployment; hosting provider to be selected |
-
-The backend follows a **feature-based modular monolith** design. Financial calculations and authorization are enforced on the backend.
-
-## Repository Structure
-
-The repository currently contains product documentation and an initial backend scaffold. The following is a **conceptual layout**; some folders and files will be created during development rather than existing today.
-
-```text
-salon-management-system/
-├── README.md
-├── backend/                # Initial scaffold; implementation in progress
-│   └── app/
-│       ├── core/
-│       ├── db/
-│       └── modules/        # Business modules will be implemented here
-├── docs/
-│   ├── 01-discovery/
-│   ├── 02-planning/
-│   ├── 03-design/
-│   ├── 04-development/
-│   ├── 05-testing/
-│   └── 06-retrospective/
-└── frontend/               # Planned, not yet implemented
+```mermaid
+flowchart LR
+    U["Owner / Cashier browser"] --> H["HTTPS origin"]
+    H --> F["React application"]
+    H --> A["FastAPI /api/v1"]
+    F -->|JSON requests| A
+    A -->|SQLAlchemy| D[(PostgreSQL)]
 ```
 
-Other folders such as tests, migrations, and deployment configuration will be introduced as needed. The actual Git repository is the source of truth for current file locations.
+FastAPI enforces permissions and Manila business-date rules and calculates financial values. [System Architecture](docs/03-design/System%20Architecture.md) and [Database Design](docs/03-design/Database%20Design.md) provide more detail.
 
-## Documentation
+## How the project was built
 
-This is a documentation-first project. The key specifications are maintained in `docs/`:
+Development has taken approximately five months and has followed a documentation-driven sequence: observe the salon workflow, define the MVP and user stories, design the data and permissions, implement small slices, test, and revise from Owner and Cashier feedback. The [Business Requirements Specification](docs/01-discovery/Business%20Requirements%20Specification.md), [User Personas](docs/01-discovery/User%20Personas.md), [MVP Scope](docs/02-planning/MVP%20Scope.md), [Product Requirements Document](docs/02-planning/Product%20Requirements%20Document.md), [User Stories](docs/02-planning/User%20Stories.md), and [Product Roadmap](docs/02-planning/Product%20Roadmap.md) record that process. Some planning documents predate later approved implementation decisions; current behavior should be checked against code and tests.
 
-- **Discovery:** Business Requirements Specification and user personas.
-- **Planning:** MVP Scope, PRD, roadmap, and user stories.
-- **Design:** Database Design, proposed v1.1 revisions, System Architecture, API Design, and wireframes.
-- **Development / Testing / Retrospective:** Working records and deliverables to be filled as implementation proceeds.
+### AI-assisted development
 
-The approved business rules and current design decisions should guide implementation. Where documents disagree, the inconsistency must be reviewed rather than silently ignored.
+I led the product work: observing the family salon's workflow, defining requirements, preparing documentation, making business decisions, and coordinating implementation, testing, and staging deployment. I used OpenAI Codex extensively to implement code, develop tests, and troubleshoot issues. Reviewing the results against the salon's requirements has been a hands-on learning experience in software engineering.
 
-## Project Roadmap and Current Status
+## Local development
 
-| Phase | Status |
-| --- | --- |
-| Business discovery | Documented |
-| MVP planning | Documented |
-| Database and system architecture | Designed; refinements may continue during implementation |
-| API design and wireframes | Detailed implementation work pending |
-| Application development | Starting: backend foundation |
-| Testing | Not yet implemented |
-| Production deployment | Not yet implemented |
-| Retrospective / portfolio case study | Planned |
+Prerequisites: Python 3.11+, Node.js 20.19+ (20.x) or 22.12+ with npm (per the locked Vite version), and a local PostgreSQL database dedicated to development. Work from the repository root unless a command changes directory.
 
-**Current status:** The project is transitioning from planning and design into AI-assisted MVP implementation. The repository includes documentation and an initial backend scaffold; the application is **not yet functional or production-ready**.
+1. In `backend/`, create and activate a virtual environment, then install the project and test dependencies with `python -m pip install -e ".[dev]"`.
+2. Copy `backend/.env.example` to the Git-ignored `backend/.env`. Set a local development database, `AUTH_COOKIE_MODE=localhost`, the exact Vite origin `http://127.0.0.1:5173`, and a stable random `AUTH_RATE_LIMIT_SECRET` of at least 32 bytes. Keep `SALE_ATTEMPT_PROTOCOL_ENABLED=0`. Never use staging or production credentials here.
+3. Verify the connected **development** database before applying migrations. From `backend/`, run `alembic upgrade head` only against that intended local database. Start the API with `python -m uvicorn app.main:app --reload`.
+4. From `frontend/`, run `npm ci` and `npm run dev`, then open `http://127.0.0.1:5173`.
 
-### Initial Development Approach
+See the [frontend development guide](frontend/README.md) for proxy and cookie details. Keep credentials in protected, Git-ignored configuration.
 
-Work in small, testable increments: inspect the relevant specification, plan a focused change, implement, run tests, review the diff, and commit verified work. Early tasks will establish the FastAPI foundation, database access, and automated tests before implementing financial workflows.
+## Testing and verification
 
-## Production and Business Continuity
+Run ordinary backend tests with `cd backend` followed by `python -m pytest`. Run frontend tests with `cd frontend` followed by `npm test`; use `npm run build` to verify the production bundle. Backend tests cover authentication and RBAC, sales and idempotency, financial calculations, History, reports, migrations, and recovery. Frontend tests cover the corresponding workspaces and interactions.
 
-The MVP is **online-only**. During an internet or service outage, salon staff will use a manual paper sales log. Once service returns, authorized users will encode and reconcile missing transactions while preserving the original business date.
+Some PostgreSQL integration and real-commit concurrency suites are guarded and require a separately verified, isolated test database plus explicit opt-in. The repository also includes a read-only [restore verification utility](deploy/backup/verify_restore.py). Ordinary tests and the utility alone do not establish production financial safety.
 
-The approved recovery targets are **24-hour RPO and 24-hour RTO**, with daily PostgreSQL backups, 14-day retention, and quarterly restore tests. These are **design objectives**, not proven capabilities; they must be validated before production use.
-
-## Success Measures
-
-The product aims to make transaction entry fast, eliminate manual commission calculation during normal operations, improve daily reconciliation, and provide reliable financial history. The original planning target of recording a sale in under 30 seconds will need validation with real users.
-
-## Future Enhancements
-
-Potential post-MVP improvements include inventory, appointments, customer records, exportable reports, multi-branch support, and advanced analytics. Essential security and financial audit events are already part of the current design and are **not** deferred as a general future enhancement.
-
-## Development Philosophy
-
-This repository documents a real product-development journey: discovering a business problem, defining the MVP, designing the system, implementing it with AI assistance, testing it, and improving it through feedback. AI can assist with implementation, but generated changes must be reviewed and tested before they are accepted.
-
-## Author
-
-Rafael Hidalgo  
-Second-Year Computer Science Student — Artificial Intelligence specialization  
-
-Building software with a product-first mindset by combining business analysis, software engineering, and AI-assisted development.
+The current schema does not provide branch isolation. Inventory, appointments, customer profiles, payroll, and offline synchronization are outside this single-salon MVP.
