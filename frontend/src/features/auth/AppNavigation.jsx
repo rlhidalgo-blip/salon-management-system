@@ -26,6 +26,17 @@ function Links({ role, section, onSelect }) {
   </nav>
 }
 
+function RoleFooter({ role }) {
+  return <div className="app-sidebar-role">
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="8" r="3" />
+      <path d="M5 20v-2a7 7 0 0 1 14 0v2" />
+    </svg>
+    <span>{role}</span>
+  </div>
+}
+
 export default function AppNavigation({ role, section, onSelect, mobile, open, onClose }) {
   const dialogRef = useRef(null)
   const closeRef = useRef(null)
@@ -47,6 +58,7 @@ export default function AppNavigation({ role, section, onSelect, mobile, open, o
     return <aside className="app-sidebar" aria-label="Application sidebar">
       <img className="app-sidebar-logo" src="/assets/yabs-logo.png" alt="Yab's Hair and Beauty Studio" />
       <Links role={role} section={section} onSelect={onSelect} />
+      <RoleFooter role={role} />
     </aside>
   }
 
@@ -58,5 +70,6 @@ export default function AppNavigation({ role, section, onSelect, mobile, open, o
         aria-label="Close menu">×</button>
     </div>
     <Links role={role} section={section} onSelect={(id) => { onClose(); onSelect(id) }} />
+    <RoleFooter role={role} />
   </dialog>
 }

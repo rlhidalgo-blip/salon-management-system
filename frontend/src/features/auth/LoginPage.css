@@ -20,14 +20,19 @@
 }
 
 .theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
   min-height: 2.75rem;
-  padding: 0.65rem 0.9rem;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 0.35rem;
   background: transparent;
   color: var(--text);
   cursor: pointer;
 }
+
+.theme-toggle svg { width: 1.25rem; height: 1.25rem; }
 
 .login-content {
   width: min(100%, 26rem);

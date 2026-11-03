@@ -161,6 +161,11 @@ class SaleKeyStatus(BaseModel):
     sale: SalePublic | None = None
 
 
+class OwnSaleKeyStatus(SaleKeyStatus):
+    # Optional display-only ordinal; the committed sale remains authoritative if unavailable.
+    daily_number: int | None = None
+
+
 class SaleAcknowledgment(BaseModel):
     status: Literal["committed"]
     recording_user_id: int

@@ -110,7 +110,8 @@ export function usePendingSale(user, onRevalidateSession) {
       const result = await getSaleStatus(key)
       if (current.current?.key !== key) return
       if (result.status === 'committed' && result.sale) {
-        setSale(result.sale)
+        setSale({ ...result.sale, daily_number: Number.isSafeInteger(result.daily_number) &&
+          result.daily_number > 0 ? result.daily_number : null })
         try {
           const saved = storedPending()
           if (saved.blocked || saved.pending?.key !== key || saved.pending.userId !== user.id) throw new Error()

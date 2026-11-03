@@ -40,6 +40,24 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it.each([owner, cashier])('shows icon-only accessible pagination for %s', async (user) => {
+  setup(user, () => reply(200, page([row], 'next-page')))
+  await screen.findByRole('table')
+  const pagination = screen.getByRole('navigation', { name: 'Transaction pages' })
+  const previous = within(pagination).getByRole('button', { name: 'Previous page' })
+  const next = within(pagination).getByRole('button', { name: 'Next page' })
+  expect(previous.disabled).toBe(true)
+  expect(next.disabled).toBe(false)
+  expect(previous.textContent).toBe('')
+  expect(next.textContent).toBe('')
+  expect(previous.querySelector('svg[aria-hidden="true"]')).toBeTruthy()
+  expect(next.querySelector('svg[aria-hidden="true"]')).toBeTruthy()
+  fireEvent.click(next)
+  expect(await screen.findByText('Page 2')).toBeTruthy()
+  expect(within(screen.getByRole('navigation', { name: 'Transaction pages' }))
+    .getByRole('button', { name: 'Previous page' }).disabled).toBe(false)
+})
+
 it('shows Owner financial history, Voided status, and a server-side business-date filter', async () => {
   setup(owner, (url) => reply(200, page([{ ...row, status: 'Voided' }])))
   const table = await screen.findByRole('table')
@@ -87,7 +105,7 @@ it('shows server daily numbers across Cashier pages while opening details by dat
     : url.includes('?') ? reply(200, page([row], 'next'))
       : reply(200, { ...detail, id: 9, daily_number: 2 }))
   expect(await screen.findByRole('button', { name: 'View transaction #1' })).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
   expect(await screen.findByRole('button', { name: 'View transaction #2' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'View transaction #2' }))
   expect(await screen.findByRole('heading', { name: 'Transaction #2' })).toBeTruthy()
@@ -107,37 +125,47 @@ it('shows Manual paper provenance and entry time to Owner only', async () => {
 })
 
 it('uses bounded cursors, supports Back, and resets the page on a date change', async () => {
-  setup(owner, (url) => url.includes('cursor=opaque-next') ? reply(200, page([row]))
+  setup(owner, (url) => url.includes('cursor=opaque-next') ? reply(200, page([{ ...row, id: 6 }]))
     : url.includes('business_date=2026-10-20') ? reply(200, page([]))
-      : reply(200, page([{ ...row, id: 6 }], 'opaque-next')))
-  await screen.findByRole('button', { name: 'View transaction #6' })
-  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-  expect(await screen.findByRole('button', { name: 'View transaction #7' })).toBeTruthy()
+      : reply(200, page([row], 'opaque-next')))
+  await screen.findByRole('button', { name: 'View transaction #7' })
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+  expect(await screen.findByRole('button', { name: 'View transaction #6' })).toBeTruthy()
   expect(screen.getByText('Page 2')).toBeTruthy()
   expect(fetch.mock.calls.at(-1)[0]).toContain('cursor=opaque-next')
-  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-  expect(await screen.findByRole('button', { name: 'View transaction #6' })).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-  await screen.findByRole('button', { name: 'View transaction #7' })
+  fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+  expect(await screen.findByRole('button', { name: 'View transaction #7' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+  await screen.findByRole('button', { name: 'View transaction #6' })
   fireEvent.change(screen.getByLabelText('Business date'), { target: { value: '2026-10-20' } })
   expect(await screen.findByText('No transactions for this business date.')).toBeTruthy()
   expect(screen.getByText('Page 1')).toBeTruthy()
   expect(fetch.mock.calls.at(-1)[0]).not.toContain('cursor=')
 })
 
-it('displays the backend ascending order without reversing the list', async () => {
-  setup(owner, () => reply(200, page([1, 2, 3, 4, 5, 6].map((id) => ({ ...row, id })))))
+it('displays the backend newest-first order without reversing the list', async () => {
+  setup(owner, () => reply(200, page([6, 5, 4, 3, 2, 1].map((id) => ({ ...row, id })))))
   await screen.findByRole('table')
   expect(screen.getAllByRole('button', { name: /^View transaction #/ })
     .map((button) => button.getAttribute('aria-label'))).toEqual(
-    [1, 2, 3, 4, 5, 6].map((id) => `View transaction #${id}`))
+    [6, 5, 4, 3, 2, 1].map((id) => `View transaction #${id}`))
+})
+
+it('keeps Cashier daily labels while displaying the newest transaction first', async () => {
+  setup(cashier, () => reply(200, page([3, 2, 1].map((number) => ({
+    ...row, id: number + 20, daily_number: number,
+  })))))
+  await screen.findByRole('table')
+  expect(screen.getAllByRole('button', { name: /^View transaction #/ })
+    .map((button) => button.getAttribute('aria-label'))).toEqual(
+    ['View transaction #3', 'View transaction #2', 'View transaction #1'])
 })
 
 it('returns to page one when an old cursor is rejected after a backend deployment', async () => {
   setup(owner, (url) => url.includes('cursor=old-order-cursor') ? reply(422, {})
     : reply(200, page([{ ...row, id: 6 }], 'old-order-cursor')))
   await screen.findByRole('button', { name: 'View transaction #6' })
-  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
   expect(await screen.findByText('History pagination changed. Showing the first page again.')).toBeTruthy()
   expect(await screen.findByText('Page 1')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'View transaction #6' })).toBeTruthy()

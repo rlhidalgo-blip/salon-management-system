@@ -97,7 +97,7 @@ export default function TransactionHistory({ user, csrfToken, onRevalidateSessio
       }).catch(async (error) => {
         if (controller.signal.aborted) return
         if (error.status === 422 && cursor) {
-          // A cursor from the older descending API must not strand an open tab.
+          // An incompatible cursor from the older ordering must not strand an open tab.
           setNotice('History pagination changed. Showing the first page again.')
           setPage((previous) => previous.businessDate === page.businessDate &&
             previous.cursors[previous.index] === cursor
@@ -275,9 +275,15 @@ export default function TransactionHistory({ user, csrfToken, onRevalidateSessio
         </div>
         <nav className="history-pagination" aria-label="Transaction pages">
           <button type="button" onClick={() => setPage((previous) => ({ ...previous, index: previous.index - 1 }))}
-            disabled={page.index === 0}>Back</button>
+            aria-label="Previous page" disabled={page.index === 0}>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+          </button>
           <span>Page {page.index + 1}</span>
-          <button type="button" onClick={nextPage} disabled={!currentList.nextCursor}>Next</button>
+          <button type="button" onClick={nextPage} aria-label="Next page" disabled={!currentList.nextCursor}>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+          </button>
         </nav>
       </>}
     </> : <>
