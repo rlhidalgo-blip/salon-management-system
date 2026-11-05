@@ -11,7 +11,7 @@
 
 Record the salon's operating status explicitly and show Owner-only sales by weekday, including average gross sales per verified operating day. Yab's normally operates Monday through Sunday but may close for holidays or other reasons. A zero-sales date does not establish that the salon was closed, and a sale does not by itself verify that the salon was open.
 
-This specification covers one salon and the existing Asia/Manila calendar-day business date. It does not introduce shifts, branches, appointments, cached financial totals, or changes to financial snapshots. The Product Owner approved the product and technical rules below as the V2 planning baseline. The schema, routes, and UI described as V2 are proposed and are not implemented yet.
+This specification covers one salon and the existing Asia/Manila calendar-day business date. It does not introduce shifts, branches, appointments, cached financial totals, or changes to financial snapshots. The Product Owner approved the product and technical rules below as the V2 planning baseline. The V2 changes are not part of `main`; local implementation progress is recorded below.
 
 ## Existing V1 behavior to preserve
 
@@ -111,3 +111,7 @@ Calendar shows all four statuses, reasons, Completed-sale counts, history, and c
 4. **Owner UI and operational checks:** add Calendar and Weekday views and focused frontend tests for role isolation, bulk preview, correction conflicts, warnings, loading/error states, and exact-key sale recovery. Run the frontend build. Update revision-aware production startup, restore verification, migration/model tests, and guarded PostgreSQL preflights as appropriate for the additive revision; keep older-schema-specific safety checks intentional.
 
 PostgreSQL concurrency and integration suites require their existing isolated-test-database checks and opt-in. A production rollout needs separate readiness and migration review; staging is not assumed to be production-ready. Implementation, migration execution, deployment, and `reserved_v1` activation are outside this documentation contribution.
+
+## Local implementation verification (November 5, 2026)
+
+Milestones 1 and 2 have been implemented locally on `feat/v2-operating-calendar` and remain uncommitted and undeployed. The shared transaction-scoped date lock is present in both Direct and Manual final sale writers, and calendar writes remain disabled by default. The Product Owner reported 22 focused PostgreSQL concurrency tests passing against the isolated `yabs_salon_test` database, plus 361 backend tests passing with two existing skips. These results support Milestone 2 review; they do not establish production readiness or change the V1 behavior on `main`.
