@@ -13,6 +13,7 @@ from app.modules.reports.router import router as reports_router
 from app.modules.transactions.router import router as transactions_router
 from app.modules.transactions.options_router import router as sales_options_router
 from app.modules.transactions.attempt_router import router as sale_attempts_router
+from app.modules.operating_days.router import router as operating_days_router
 
 
 @asynccontextmanager
@@ -41,6 +42,7 @@ app.include_router(transactions_router)
 app.include_router(sales_options_router)
 app.include_router(sale_attempts_router)
 app.include_router(reports_router)
+app.include_router(operating_days_router)
 
 
 @app.get("/health")

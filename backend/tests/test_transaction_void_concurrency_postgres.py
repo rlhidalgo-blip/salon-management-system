@@ -42,7 +42,7 @@ def _safe(connection, url):
     if connection.scalar(text("SELECT current_schema()")) != "public":
         raise RuntimeError("Unexpected schema")
     if (connection.scalar(text("SELECT to_regclass('public.alembic_version')")) is None
-            or connection.scalar(text("SELECT version_num FROM public.alembic_version")) != "20261020_01"):
+            or connection.scalar(text("SELECT version_num FROM public.alembic_version")) != "20261104_01"):
         raise RuntimeError("Unexpected Alembic revision")
 
 

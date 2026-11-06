@@ -141,7 +141,8 @@ export default function AuthenticatedHome({ user, theme, csrfToken, onRevalidate
                   onRevalidateSession={onRevalidateSession} pendingSale={pendingSale} onDraftChange={setSalesDraft} />
                 : current === 'history' ? <TransactionHistory user={user} csrfToken={csrfToken}
                     onRevalidateSession={onRevalidateSession} />
-                  : <ReportsSection user={user} onRevalidateSession={onRevalidateSession} />}
+                  : <ReportsSection user={user} csrfToken={csrfToken}
+                      onRevalidateSession={onRevalidateSession} />}
       </main>
     </div>
     <dialog className="sales-leave-dialog" ref={leaveDialogRef} aria-labelledby="sales-leave-title"

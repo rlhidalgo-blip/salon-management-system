@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import ApiError
 from app.modules.catalog.models import Product, Service
 from app.modules.commissions.models import CommissionRule
+from app.modules.operating_days.date_lock import lock_operating_date, require_sale_date_not_closed
 from app.modules.staff.models import Staff
 from app.modules.transactions.calculations import ZERO, calculate_item
 from app.modules.transactions.attempt_write_guard import (
@@ -141,10 +142,17 @@ def record_direct_sale(session: Session, payload: SaleCreate, *, actor_user_id: 
             raise ApiError(409, "staff_inactive", "Assigned staff member is unavailable")
         staff[staff_id] = member
 
-    # Re-read trusted time after any lock waits, so a request crossing Manila
-    # midnight is recorded on the actual sale-creation business date.
+    # Lock the date chosen after catalog waits. If this lock wait spans Manila
+    # midnight, roll back the entire attempt and retry only with the same key.
+    candidate_time = _database_time(session)
+    business_date = candidate_time.astimezone(ZoneInfo("Asia/Manila")).date()
+    lock_operating_date(session, business_date, for_sale=True)
     sale_time = _database_time(session)
-    sale = Transaction(date_time=sale_time, business_date=sale_time.astimezone(ZoneInfo("Asia/Manila")).date(),
+    if sale_time.astimezone(ZoneInfo("Asia/Manila")).date() != business_date:
+        raise ApiError(503, "sale_outcome_uncertain",
+                       "Business date changed; check the same key before retrying")
+    require_sale_date_not_closed(session, business_date)
+    sale = Transaction(date_time=sale_time, business_date=business_date,
                        recorded_by_user_id=actor_user_id, entry_source="Direct",
                        payment_method=payload.payment_method, gcash_reference=payload.gcash_reference,
                        status="Completed")

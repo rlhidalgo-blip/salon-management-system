@@ -52,7 +52,8 @@ def db_api(monkeypatch):
                 pytest.fail("Missing Alembic revision; no writes attempted")
             revision = connection.scalar(text("SELECT version_num FROM public.alembic_version"))
             has_attempts = connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is not None
-            if (revision, has_attempts) not in (("20261020_01", False), ("20261027_01", True)):
+            if ((revision, has_attempts) != ("20261104_01", True)
+                    or connection.scalar(text("SELECT to_regclass('public.operating_days')")) is None):
                 pytest.fail("Unexpected Alembic revision; no writes attempted")
             baseline = {model: connection.scalar(select(func.count()).select_from(model)) for model in MODELS}
             connection.rollback()

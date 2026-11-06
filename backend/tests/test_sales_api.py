@@ -1,7 +1,8 @@
 """Fast transactional API tests; real PostgreSQL locking lives in opt-in tests."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -12,12 +13,13 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core.exceptions import install_error_handlers
+from app.core.exceptions import ApiError, install_error_handlers
 from app.db.session import get_db_session
 from app.modules.audit.models import AuditEvent
 from app.modules.auth.dependencies import Principal, get_current_principal
 from app.modules.catalog.models import Product, Service
 from app.modules.commissions.models import CommissionRule
+from app.modules.operating_days.models import OperatingDay
 from app.modules.staff.models import Staff
 from app.modules.transactions.idempotency_models import SaleIdempotency
 from app.modules.transactions.models import Transaction, TransactionItem
@@ -42,7 +44,7 @@ def api(monkeypatch):
     @event.listens_for(engine, "begin")
     def _sqlite_begin(connection):
         connection.exec_driver_sql("BEGIN")
-    for model in (User, Staff, CommissionRule, Service, Product, Transaction, TransactionItem,
+    for model in (User, Staff, CommissionRule, Service, Product, Transaction, TransactionItem, OperatingDay,
                   SaleIdempotency, AuditEvent):
         model.__table__.create(engine)
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -61,9 +63,11 @@ def api(monkeypatch):
     import app.modules.transactions.reconciliation_service as reconciliation_service
     monkeypatch.setattr(service, "_database_time", lambda _session: datetime(2026, 10, 22, 16, 30, tzinfo=timezone.utc))
     monkeypatch.setattr(service, "lock_sale_key", lambda *_args: None)
+    monkeypatch.setattr(service, "lock_operating_date", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(service, "try_lock_sale_key", lambda *_args: True)
     monkeypatch.setattr(manual_service, "_database_time", lambda _session: datetime(2026, 10, 22, 16, 30, tzinfo=timezone.utc))
     monkeypatch.setattr(manual_service, "lock_sale_key", lambda *_args: None)
+    monkeypatch.setattr(manual_service, "lock_operating_date", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(reconciliation_service, "_database_time",
                         lambda _session: datetime(2026, 10, 22, 16, 30, tzinfo=timezone.utc))
     monkeypatch.setattr(reconciliation_service, "try_lock_sale_key", lambda *_args: True)
@@ -562,6 +566,7 @@ def test_manual_cashier_midnight_during_unique_wait_rolls_back(api, monkeypatch)
     app.dependency_overrides[get_current_principal] = lambda: Principal(2, "test_cashier", "Cashier", "synthetic")
     import app.modules.transactions.manual_service as manual_service
     clock = iter((datetime(2026, 10, 23, 15, 59, tzinfo=timezone.utc),
+                  datetime(2026, 10, 23, 16, 0, tzinfo=timezone.utc),
                   datetime(2026, 10, 23, 16, 0, tzinfo=timezone.utc)))
     monkeypatch.setattr(manual_service, "_database_time", lambda _session: next(clock))
     assert _send_manual(client, _manual_payload()).status_code == 403
@@ -588,3 +593,127 @@ def test_manual_one_item_per_unit_and_product_commissions(api):
     assert response.json()["total_business_share"] == "231.00"
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(TransactionItem)) == 4
+
+
+@pytest.mark.parametrize("mode", ["Direct", "Manual"])
+def test_verified_closed_rejects_new_sale_then_exact_key_retry_after_reopen(api, mode):
+    client, factory, _app = api
+    business_date = date(2026, 10, 23)
+    with factory.begin() as session:
+        session.add(OperatingDay(business_date=business_date, status="Closed", closure_reason="Holiday",
+                                 created_by_user_id=1, updated_by_user_id=1, version=1))
+    key = uuid4()
+    send = (lambda: _send(client, _payload(), key)) if mode == "Direct" else (
+        lambda: _send_manual(client, _manual_payload(), key))
+    closed = send()
+    assert closed.status_code == 409
+    assert closed.json()["error"]["code"] == "business_date_closed"
+    with factory() as session:
+        for model in (Transaction, TransactionItem, SaleIdempotency):
+            assert session.scalar(select(func.count()).select_from(model)) == 0
+        assert session.scalar(select(func.count()).select_from(AuditEvent)) == 0
+    with factory.begin() as session:
+        day = session.get(OperatingDay, business_date)
+        day.status, day.closure_reason, day.version = "Open", None, 2
+    first = send()
+    assert first.status_code == 201, first.json()
+    # Simulate an out-of-band historical inconsistency: committed replay must
+    # return its original sale, even if the current calendar row later changes.
+    with factory.begin() as session:
+        day = session.get(OperatingDay, business_date)
+        day.status, day.closure_reason, day.version = "Closed", "Out-of-band correction", 3
+    replay = send()
+    assert replay.status_code == 200 and replay.json()["id"] == first.json()["id"]
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(Transaction)) == 1
+        assert session.scalar(select(func.count()).select_from(SaleIdempotency)) == 1
+
+
+@pytest.mark.parametrize("status,reason", [
+    ("Open", None), ("Unknown", None), ("PlannedClosed", "Unconfirmed plan"),
+])
+def test_nonclosed_status_allows_new_direct_and_manual_sales(api, status, reason):
+    client, factory, _app = api
+    with factory.begin() as session:
+        session.add(OperatingDay(business_date=date(2026, 10, 23), status=status,
+                                 closure_reason=reason, created_by_user_id=1,
+                                 updated_by_user_id=1, version=1))
+    assert _send(client, _payload()).status_code == 201
+    assert _send_manual(client, _manual_payload()).status_code == 201
+    with factory() as session:
+        assert session.get(OperatingDay, date(2026, 10, 23)).status == status
+
+
+def test_direct_midnight_during_date_lock_rolls_back_and_same_key_retries(api, monkeypatch):
+    client, factory, _app = api
+    import app.modules.transactions.service as direct_service
+    clock = iter((datetime(2026, 10, 23, 15, 59, tzinfo=timezone.utc),
+                  datetime(2026, 10, 23, 15, 59, 59, tzinfo=timezone.utc),
+                  datetime(2026, 10, 23, 16, 0, tzinfo=timezone.utc)))
+    monkeypatch.setattr(direct_service, "_database_time", lambda _session: next(clock))
+    key = uuid4()
+    crossed = _send(client, _payload(), key)
+    assert crossed.status_code == 503
+    assert crossed.json()["error"]["code"] == "sale_outcome_uncertain"
+    with factory() as session:
+        for model in (Transaction, TransactionItem, SaleIdempotency):
+            assert session.scalar(select(func.count()).select_from(model)) == 0
+    monkeypatch.setattr(direct_service, "_database_time",
+                        lambda _session: datetime(2026, 10, 23, 16, 0, 1, tzinfo=timezone.utc))
+    retry = _send(client, _payload(), key)
+    assert retry.status_code == 201 and retry.json()["business_date"] == "2026-10-24"
+
+
+@pytest.mark.parametrize("mode", ["Direct", "Manual"])
+def test_date_lock_timeout_rolls_back_claim_and_allows_exact_key_retry(api, monkeypatch, mode):
+    client, factory, _app = api
+    import app.modules.transactions.service as direct_service
+    import app.modules.transactions.manual_service as manual_service
+
+    writer = direct_service if mode == "Direct" else manual_service
+    key = uuid4()
+    send = (lambda: _send(client, _payload(), key)) if mode == "Direct" else (
+        lambda: _send_manual(client, _manual_payload(), key))
+
+    def busy(_session, _day, *, for_sale=False):
+        assert for_sale
+        raise ApiError(503, "sale_outcome_uncertain", "Check the same key")
+
+    monkeypatch.setattr(writer, "lock_operating_date", busy)
+    timed_out = send()
+    assert timed_out.status_code == 503
+    assert timed_out.json()["error"]["code"] == "sale_outcome_uncertain"
+    with factory() as session:
+        for model in (Transaction, TransactionItem, SaleIdempotency, AuditEvent):
+            assert session.scalar(select(func.count()).select_from(model)) == 0
+
+    monkeypatch.setattr(writer, "lock_operating_date", lambda *_args, **_kwargs: None)
+    assert send().status_code == 201
+
+
+@pytest.mark.parametrize("mode", ["Direct", "Manual"])
+def test_reserved_writer_rejection_leaves_attempt_and_no_claim(api, monkeypatch, mode):
+    client, factory, _app = api
+    import app.modules.transactions.service as direct_service
+    import app.modules.transactions.manual_service as manual_service
+    from app.modules.transactions import router as transaction_router
+
+    with factory.begin() as session:
+        session.add(OperatingDay(business_date=date(2026, 10, 23), status="Closed",
+                                 closure_reason="Holiday", created_by_user_id=1,
+                                 updated_by_user_id=1, version=1))
+    attempt = SimpleNamespace(state="Reserved")
+    monkeypatch.setattr(transaction_router, "attempt_protocol_enabled", lambda: True)
+    for writer in (direct_service, manual_service):
+        monkeypatch.setattr(writer, "bound_sale_waits", lambda _session: None)
+        monkeypatch.setattr(writer, "committed_claim_or_none", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(writer, "require_reserved_attempt", lambda *_args, **_kwargs: attempt)
+    monkeypatch.setattr(manual_service, "lock_manual_reference", lambda *_args: None)
+    send = (lambda: _send(client, _payload())) if mode == "Direct" else (
+        lambda: _send_manual(client, _manual_payload()))
+    response = send()
+    assert response.status_code == 409 and response.json()["error"]["code"] == "business_date_closed"
+    assert attempt.state == "Reserved"
+    with factory() as session:
+        for model in (Transaction, TransactionItem, SaleIdempotency, AuditEvent):
+            assert session.scalar(select(func.count()).select_from(model)) == 0

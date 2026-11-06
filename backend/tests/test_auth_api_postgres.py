@@ -67,7 +67,8 @@ def api(monkeypatch: pytest.MonkeyPatch) -> Iterator[ApiCase]:
                 pytest.fail("Alembic version table absent; no writes attempted")
             revision = connection.scalar(text("SELECT version_num FROM public.alembic_version"))
             has_attempts = connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is not None
-            if (revision, has_attempts) not in (("20261020_01", False), ("20261027_01", True)):
+            if (revision, has_attempts) not in (("20261020_01", False), ("20261027_01", True),
+                                                ("20261104_01", True)):
                 pytest.fail("Expected migration revision absent; no writes attempted")
             baseline_audits = connection.scalar(select(func.count()).select_from(AuditEvent))
             baseline_sessions = connection.scalar(select(func.count()).select_from(AuthSession))

@@ -883,6 +883,28 @@ it('submits Manual to its original endpoint and uses the shared unresolved guard
   expect(fetch.mock.calls.some(([url]) => url === '/api/v1/transactions')).toBe(false)
 })
 
+it.each(['direct', 'manual'])('keeps the exact %s pending key after a verified Closed-date rejection', async (mode) => {
+  const path = mode === 'direct' ? '/api/v1/transactions' : '/api/v1/transactions/manual'
+  setup(cashier, (url) => {
+    if (url.endsWith('/sales/manual-options')) return reply(200, manualOptions)
+    if (url === path) return reply(409, { error: { code: 'business_date_closed' } })
+    return reply(200, { status: 'not_committed_at_check', sale: null })
+  })
+  await ready()
+  if (mode === 'direct') add('Oil', 'product')
+  else { await manualReady(); fillManualService() }
+  fireEvent.click(screen.getByRole('button', { name: mode === 'direct' ? 'Review sale' : 'Review Manual sale' }))
+  fireEvent.click(screen.getByRole('button', { name: mode === 'direct' ? 'Confirm sale' : 'Confirm Manual sale' }))
+  expect(await screen.findByText(/business date is marked Closed/i)).toBeTruthy()
+  expect(screen.getByText(/contact the Owner before retrying/i)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+  expect(screen.queryByRole('button', { name: 'New Sale' })).toBeNull()
+  expect(fetch.mock.calls.filter(([url]) => url === path)).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: 'Check status' }))
+  expect(await screen.findByText(/No committed sale found at this check/i)).toBeTruthy()
+  expect(sessionStorage.getItem('yabs-pending-sale')).toBe(JSON.stringify({ key: KEY, userId: 2 }))
+})
+
 it.each([200, 201])('confirms Manual POST %i with backend totals, then clears only its draft', async (status) => {
   setup(cashier, (url) => url.endsWith('/sales/manual-options') ? reply(200, manualOptions)
     : url === '/api/v1/transactions/manual' ? reply(status, sale)

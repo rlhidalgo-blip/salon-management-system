@@ -2,24 +2,28 @@
 
 import re
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, func, select, true
+from sqlalchemy import Date, case, column, func, select, true, values
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ApiError
+from app.modules.operating_days.models import OperatingDay
 from app.modules.staff.models import Staff
 from app.modules.transactions.models import Transaction, TransactionItem
 from app.modules.transactions.service import _database_time
 from app.modules.reports.schemas import (
     DailyReport, MonthlyReport, MonthlyStaffPerformance, StaffCommissionTotal,
+    WeekdayCoverage, WeekdaySalesReport, WeekdaySalesRow,
 )
 
 
 MANILA = ZoneInfo("Asia/Manila")
 ZERO = Decimal("0.00")
 MONTH_PATTERN = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+CENT = Decimal("0.01")
 
 
 def daily_report(session: Session, *, role: str, business_date: date | None) -> DailyReport:
@@ -236,3 +240,94 @@ def monthly_report(session: Session, *, month: str | None) -> MonthlyReport:
         ) for row in rows if row.staff_id is not None],
         unassigned_product_sales=summary.unassigned,
     )
+
+
+def weekday_sales_report(session: Session, *, start: date, through: date) -> WeekdaySalesReport:
+    """One bounded aggregation statement gives sales and calendar data one DB snapshot."""
+    span = (through - start).days + 1
+    if span < 1 or span > 366:
+        raise ApiError(422, "invalid_date_range", "Choose a range of 1 to 366 dates")
+    as_of = _database_time(session)
+    today = as_of.astimezone(MANILA).date()
+    if through > today:
+        raise ApiError(422, "invalid_business_date", "Reporting range cannot end in the future")
+
+    # VALUES is bounded to 366 dates. It includes zero-sales dates and works in
+    # one SQL statement on PostgreSQL and the fast SQLite test fixture.
+    requested_dates = values(column("business_date", Date()), name="requested_dates").data([
+        (start + timedelta(days=offset),) for offset in range(span)
+    ]).cte("requested_dates")
+    completed_by_date = (
+        select(
+            Transaction.business_date.label("business_date"),
+            func.sum(TransactionItem.selling_price).label("gross_sales"),
+            func.count(func.distinct(Transaction.id)).label("completed_count"),
+        )
+        .join(TransactionItem, TransactionItem.transaction_id == Transaction.id)
+        .where(Transaction.status == "Completed",
+               Transaction.business_date >= start, Transaction.business_date <= through)
+        .group_by(Transaction.business_date)
+        .cte("completed_by_date")
+    )
+    statement = (
+        select(
+            requested_dates.c.business_date,
+            func.coalesce(completed_by_date.c.gross_sales, ZERO).label("gross_sales"),
+            func.coalesce(completed_by_date.c.completed_count, 0).label("completed_count"),
+            OperatingDay.status,
+        )
+        .select_from(requested_dates)
+        .outerjoin(completed_by_date,
+                   completed_by_date.c.business_date == requested_dates.c.business_date)
+        .outerjoin(OperatingDay, OperatingDay.business_date == requested_dates.c.business_date)
+        .order_by(requested_dates.c.business_date)
+    )
+    daily_rows = session.execute(statement).all()
+    if _database_time(session).astimezone(MANILA).date() != today:
+        raise ApiError(503, "report_date_changed", "Business date changed; retry the report")
+
+    rows = [{
+        "weekday_number": index + 1, "weekday": name,
+        "gross_sales": ZERO, "historical_gross_sales": ZERO,
+        "verified_open_gross_sales": ZERO, "provisional_today_gross_sales": ZERO,
+        "verified_open_days": 0, "verified_closed_days": 0, "unknown_days": 0,
+        "unconfirmed_planned_days": 0, "closed_dates_with_sales": 0,
+    } for index, name in enumerate(WEEKDAY_NAMES)]
+    for day, gross, completed_count, recorded_status in daily_rows:
+        row = rows[day.weekday()]
+        row["gross_sales"] += gross
+        if day == today:
+            row["provisional_today_gross_sales"] += gross
+            continue
+        row["historical_gross_sales"] += gross
+        status = recorded_status or "Unknown"
+        if status == "Open":
+            row["verified_open_days"] += 1
+            row["verified_open_gross_sales"] += gross
+        elif status == "Closed":
+            row["verified_closed_days"] += 1
+            if completed_count:
+                row["closed_dates_with_sales"] += 1
+        elif status == "PlannedClosed":
+            row["unconfirmed_planned_days"] += 1
+        else:
+            row["unknown_days"] += 1
+
+    for row in rows:
+        days = row["verified_open_days"]
+        row["average_gross_per_verified_open_day"] = (
+            (row["verified_open_gross_sales"] / days).quantize(CENT, rounding=ROUND_HALF_UP)
+            if days else None
+        )
+    weekdays = [WeekdaySalesRow(**row) for row in rows]
+    totals = {field: sum(getattr(row, field) for row in weekdays) for field in (
+        "verified_open_days", "verified_closed_days", "unknown_days",
+        "unconfirmed_planned_days", "closed_dates_with_sales",
+    )}
+    unverified = totals["unknown_days"] + totals["unconfirmed_planned_days"]
+    coverage = WeekdayCoverage(
+        historical_days=span - int(through == today),
+        **totals, unverified_days=unverified, incomplete_coverage=unverified > 0,
+    )
+    return WeekdaySalesReport(from_date=start, through=through, as_of=as_of,
+                              coverage=coverage, weekdays=weekdays)

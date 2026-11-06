@@ -1,4 +1,4 @@
-"""Opt-in REAL-COMMIT reservation races on isolated local yabs_salon_test.
+"""Opt-in real-commit reservation and calendar races on isolated local yabs_salon_test.
 
 Never run alongside other database writers. A crash can leave synthetic rows;
 the marker and captured IDs in a cleanup failure require manual review.
@@ -9,7 +9,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, time as clock_time, timedelta, timezone
 from decimal import Decimal
 from ipaddress import ip_address
 from unittest.mock import patch
@@ -26,6 +26,10 @@ from app.core.exceptions import ApiError
 from app.modules.audit.models import AuditEvent
 from app.modules.catalog.models import Service
 from app.modules.commissions.models import CommissionRule
+from app.modules.operating_days.date_lock import lock_operating_date
+from app.modules.operating_days.models import OperatingDay
+from app.modules.operating_days.schemas import BulkOpenVerification, OperatingDayUpdate
+from app.modules.operating_days.service import bulk_verify_open, update_day
 from app.modules.staff.models import Staff
 from app.modules.transactions.attempt_models import SaleAttempt
 from app.modules.transactions.attempt_schemas import CancellationRequest, ReservationRequest
@@ -38,7 +42,7 @@ from app.modules.users.models import User
 
 
 PREFIX = "synthetic-attempt-race-"
-REVISION = "20261027_01"
+REVISION = "20261104_01"
 MODELS = {
     "users": User, "staff": Staff, "rules": CommissionRule, "services": Service,
     "attempts": SaleAttempt, "transactions": Transaction, "items": TransactionItem,
@@ -61,7 +65,8 @@ def _connected_target(connection, url):
             or connection.scalar(text("SELECT current_schema()")) != "public"
             or connection.scalar(text("SELECT count(*) FROM public.alembic_version")) != 1
             or connection.scalar(text("SELECT version_num FROM public.alembic_version")) != REVISION
-            or connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is None):
+            or connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is None
+            or connection.scalar(text("SELECT to_regclass('public.operating_days')")) is None):
         raise RuntimeError("Unsafe connected target or Alembic revision")
 
 
@@ -76,6 +81,7 @@ class Case:
     staff_id: int | None = None
     service_id: int | None = None
     ids: dict[str, set[int]] = field(default_factory=lambda: {name: set() for name in MODELS})
+    operating_dates: set = field(default_factory=set)
 
     def direct(self, price="101.00"):
         return TypeAdapter(ReservationRequest).validate_python({
@@ -128,6 +134,13 @@ def _owned_ids(case, connection):
         SaleAttempt.id.in_(case.ids["attempts"]), SaleAttempt.transaction_id.is_not(None))))
     if not linked.issubset(case.ids["transactions"]):
         raise RuntimeError("Synthetic attempt references an unowned sale")
+    dates = set(connection.scalars(select(OperatingDay.business_date).where(
+        OperatingDay.created_by_user_id.in_(case.ids["users"]))))
+    case.operating_dates.update(dates)
+    if dates and connection.scalar(select(func.count()).select_from(OperatingDay).where(
+            OperatingDay.business_date.in_(dates),
+            OperatingDay.updated_by_user_id.not_in(case.ids["users"]))) != 0:
+        raise RuntimeError("Synthetic operating date ownership mismatch")
     for name, model, row_id in (
         ("staff", Staff, case.staff_id), ("services", Service, case.service_id),
     ):
@@ -145,11 +158,17 @@ def _cleanup(case):
             _owned_ids(case, connection)
             for name in ("items", "claims", "attempts", "transactions", "audits",
                          "services", "staff", "rules", "users"):
+                if name == "users" and case.operating_dates:
+                    connection.execute(delete(OperatingDay).where(
+                        OperatingDay.business_date.in_(case.operating_dates)))
                 if case.ids[name]:
                     model = MODELS[name]
                     connection.execute(delete(model).where(model.id.in_(case.ids[name])))
         with case.engine.connect() as verifier:
             _connected_target(verifier, case.url)
+            if case.operating_dates and verifier.scalar(select(func.count()).select_from(OperatingDay).where(
+                    OperatingDay.business_date.in_(case.operating_dates))) != 0:
+                raise RuntimeError("Synthetic operating date remains")
             for name, model in MODELS.items():
                 if case.ids[name] and verifier.scalar(select(func.count()).select_from(model).where(
                         model.id.in_(case.ids[name]))) != 0:
@@ -488,3 +507,305 @@ def test_failed_write_and_audit_rollback_leave_reserved_fence(case):
         assert verifier.scalar(select(func.count()).select_from(AuditEvent).where(
             AuditEvent.actor_user_id == case.owner_id,
             AuditEvent.event_type == "SaleAttemptCancellation")) == 0
+
+
+def _business_date(case, request):
+    if request.source == "Manual":
+        return request.sale.date_time.astimezone(ZoneInfo("Asia/Manila")).date()
+    with case.engine.connect() as connection:
+        _connected_target(connection, case.url)
+        return connection.scalar(text("SELECT (clock_timestamp() AT TIME ZONE 'Asia/Manila')::date"))
+
+
+def _calendar_change(case, day, status, expected_version):
+    with Session(case.engine, autoflush=False, expire_on_commit=False) as session:
+        with session.begin():
+            return update_day(session, business_date=day,
+                              payload=OperatingDayUpdate(
+                                  status=status, expected_version=expected_version,
+                                  closure_reason="Synthetic closure" if status == "Closed" else None),
+                              actor_user_id=case.owner_id)
+
+
+def _legacy_write(case, request, key):
+    with Session(case.engine, autoflush=False, expire_on_commit=False) as session:
+        with session.begin():
+            if request.source == "Direct":
+                return record_direct_sale(session, request.sale, actor_user_id=case.owner_id,
+                                          idempotency_key=key)
+            return record_manual_sale(session, request.sale, actor_user_id=case.owner_id,
+                                      role="Owner", idempotency_key=key)
+
+
+@pytest.mark.parametrize("source", ["Direct", "Manual"])
+def test_closed_rejection_claim_rollback_and_replay_after_correction(case, source):
+    request = case.direct() if source == "Direct" else case.manual()
+    day, key = _business_date(case, request), uuid4()
+    assert _calendar_change(case, day, "Closed", 0).status == "Closed"
+    with pytest.raises(ApiError) as error:
+        _legacy_write(case, request, key)
+    assert (error.value.status_code, error.value.code) == (409, "business_date_closed")
+    with case.engine.connect() as verifier:
+        _connected_target(verifier, case.url)
+        assert verifier.scalar(select(func.count()).select_from(SaleIdempotency).where(
+            SaleIdempotency.user_id == case.owner_id)) == 0
+        assert verifier.scalar(select(func.count()).select_from(Transaction).where(
+            Transaction.recorded_by_user_id == case.owner_id)) == 0
+    assert _calendar_change(case, day, "Unknown", 1).version == 2
+    sale, replay = _legacy_write(case, request, key)
+    assert not replay and sale.business_date == day
+    assert _calendar_change(case, day, "Open", 2).version == 3
+    again, replay = _legacy_write(case, request, key)
+    assert replay and again.id == sale.id
+
+
+@pytest.mark.parametrize("source", ["Direct", "Manual"])
+def test_unconfirmed_planned_closure_allows_sale_without_promotion(case, source):
+    request = case.direct() if source == "Direct" else case.manual()
+    day = _business_date(case, request)
+    # Simulate a future plan that reached its date without Owner confirmation.
+    with case.engine.begin() as connection:
+        _connected_target(connection, case.url)
+        if connection.scalar(select(OperatingDay.business_date).where(
+                OperatingDay.business_date == day)) is not None:
+            pytest.fail("Unexpected operating date on isolated test target")
+        connection.execute(insert(OperatingDay).values(
+            business_date=day, status="PlannedClosed", closure_reason="Synthetic unconfirmed plan",
+            created_by_user_id=case.owner_id, updated_by_user_id=case.owner_id, version=1))
+    sale, replay = _legacy_write(case, request, uuid4())
+    assert not replay and sale.business_date == day
+    with case.engine.connect() as verifier:
+        _connected_target(verifier, case.url)
+        assert verifier.scalar(select(OperatingDay.status).where(
+            OperatingDay.business_date == day)) == "PlannedClosed"
+
+
+@pytest.mark.parametrize("source", ["Direct", "Manual"])
+def test_sale_commit_prevents_concurrent_closed_update(case, source):
+    request = case.direct() if source == "Direct" else case.manual()
+    day = _business_date(case, request)
+    key = uuid4()
+    sale_ready, release_sale, closure_started = (threading.Event() for _ in range(3))
+    closure_pid = []
+
+    def sale_first():
+        with Session(case.engine, autoflush=False, expire_on_commit=False) as session:
+            with session.begin():
+                if source == "Direct":
+                    sale, _ = record_direct_sale(session, request.sale,
+                                                 actor_user_id=case.owner_id, idempotency_key=key)
+                else:
+                    sale, _ = record_manual_sale(session, request.sale,
+                                                 actor_user_id=case.owner_id, role="Owner",
+                                                 idempotency_key=key)
+                sale_ready.set()
+                assert release_sale.wait(timeout=8)
+                return sale.id
+
+    def close_second():
+        with Session(case.engine, autoflush=False, expire_on_commit=False) as session:
+            closure_pid.append(session.scalar(text("SELECT pg_backend_pid()")))
+            closure_started.set()
+            try:
+                with session.begin_nested():
+                    update_day(session, business_date=day,
+                               payload=OperatingDayUpdate(status="Closed", closure_reason="Race",
+                                                          expected_version=0),
+                               actor_user_id=case.owner_id)
+                session.commit()
+                return "closed"
+            except ApiError as exc:
+                session.rollback()
+                return exc.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        sale_future = pool.submit(sale_first)
+        try:
+            assert sale_ready.wait(timeout=8)
+            close_future = pool.submit(close_second)
+            assert closure_started.wait(timeout=8)
+            _wait_for_lock(case, closure_pid[0])
+        finally:
+            release_sale.set()
+        sale_id = sale_future.result(timeout=15)
+        assert close_future.result(timeout=15) == "completed_sales_on_date"
+    with case.engine.connect() as verifier:
+        _connected_target(verifier, case.url)
+        assert verifier.scalar(select(Transaction.id).where(Transaction.id == sale_id)) == sale_id
+        assert verifier.scalar(select(OperatingDay.business_date).where(
+            OperatingDay.business_date == day)) is None
+
+
+@pytest.mark.parametrize("source", ["Direct", "Manual"])
+def test_closed_update_commit_prevents_concurrent_sale(case, source):
+    request = case.direct() if source == "Direct" else case.manual()
+    day, key = _business_date(case, request), uuid4()
+    closure_ready, release_closure, sale_started = (threading.Event() for _ in range(3))
+    sale_pid = []
+
+    def close_first():
+        with Session(case.engine, autoflush=False, expire_on_commit=False) as session:
+            with session.begin():
+                update_day(session, business_date=day,
+                           payload=OperatingDayUpdate(status="Closed", closure_reason="Race",
+                                                      expected_version=0),
+                           actor_user_id=case.owner_id)
+                closure_ready.set()
+                assert release_closure.wait(timeout=8)
+
+    def sale_second():
+        with Session(case.engine, autoflush=False, expire_on_commit=False) as session:
+            sale_pid.append(session.scalar(text("SELECT pg_backend_pid()")))
+            sale_started.set()
+            try:
+                with session.begin_nested():
+                    if source == "Direct":
+                        record_direct_sale(session, request.sale, actor_user_id=case.owner_id,
+                                           idempotency_key=key)
+                    else:
+                        record_manual_sale(session, request.sale, actor_user_id=case.owner_id,
+                                           role="Owner", idempotency_key=key)
+                session.commit()
+                return "created"
+            except ApiError as exc:
+                session.rollback()
+                return exc.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        closure_future = pool.submit(close_first)
+        try:
+            assert closure_ready.wait(timeout=8)
+            sale_future = pool.submit(sale_second)
+            assert sale_started.wait(timeout=8)
+            _wait_for_lock(case, sale_pid[0])
+        finally:
+            release_closure.set()
+        closure_future.result(timeout=15)
+        assert sale_future.result(timeout=15) == "business_date_closed"
+    with case.engine.connect() as verifier:
+        _connected_target(verifier, case.url)
+        assert verifier.scalar(select(func.count()).select_from(SaleIdempotency).where(
+            SaleIdempotency.user_id == case.owner_id)) == 0
+        assert verifier.scalar(select(func.count()).select_from(Transaction).where(
+            Transaction.recorded_by_user_id == case.owner_id)) == 0
+        assert verifier.scalar(select(OperatingDay.status).where(
+            OperatingDay.business_date == day)) == "Closed"
+
+
+def test_concurrent_calendar_corrections_reject_stale_version(case):
+    day = _business_date(case, case.direct())
+    second_started, second_pid = threading.Event(), []
+
+    def stale_correction():
+        with Session(case.engine, autoflush=False, expire_on_commit=False) as session:
+            second_pid.append(session.scalar(text("SELECT pg_backend_pid()")))
+            second_started.set()
+            try:
+                with session.begin_nested():
+                    update_day(session, business_date=day,
+                               payload=OperatingDayUpdate(status="Closed", closure_reason="Stale",
+                                                          expected_version=0),
+                               actor_user_id=case.second_owner_id)
+                session.commit()
+                return "changed"
+            except ApiError as exc:
+                session.rollback()
+                return exc.code
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with Session(case.engine, autoflush=False, expire_on_commit=False) as first:
+            with first.begin():
+                update_day(first, business_date=day,
+                           payload=OperatingDayUpdate(status="Open", expected_version=0),
+                           actor_user_id=case.owner_id)
+                future = pool.submit(stale_correction)
+                assert second_started.wait(timeout=8)
+                _wait_for_lock(case, second_pid[0])
+        assert future.result(timeout=15) == "operating_day_changed"
+    with case.engine.connect() as verifier:
+        _connected_target(verifier, case.url)
+        assert verifier.scalar(select(OperatingDay.status).where(
+            OperatingDay.business_date == day)) == "Open"
+        assert verifier.scalar(select(OperatingDay.version).where(
+            OperatingDay.business_date == day)) == 1
+
+
+def test_bulk_open_locks_dates_in_ascending_order(case):
+    today = _business_date(case, case.direct())
+    dates = (today - timedelta(days=1), today - timedelta(days=2))
+    payload = BulkOpenVerification.model_validate({"dates": [
+        {"business_date": day.isoformat(), "expected_version": 0} for day in dates]})
+    acquired = []
+
+    def record_lock(session, day):
+        acquired.append(day)
+        lock_operating_date(session, day)
+
+    with patch("app.modules.operating_days.service.lock_operating_date", side_effect=record_lock):
+        with Session(case.engine, autoflush=False, expire_on_commit=False) as session:
+            with session.begin():
+                result = bulk_verify_open(session, payload=payload, actor_user_id=case.owner_id)
+    assert acquired == sorted(dates)
+    assert result.changed_count == 2
+    with case.engine.connect() as verifier:
+        _connected_target(verifier, case.url)
+        assert list(verifier.scalars(select(OperatingDay.status).where(
+            OperatingDay.business_date.in_(dates)))) == ["Open", "Open"]
+
+
+@pytest.mark.parametrize("source", ["Direct", "Manual"])
+def test_reserved_attempt_survives_closed_rejection(case, source):
+    request = case.direct() if source == "Direct" else case.manual()
+    day, key = _business_date(case, request), uuid4()
+    attempt, _ = _reserve(case, request, case.owner_id, "Owner", key)
+    _calendar_change(case, day, "Closed", 0)
+    with pytest.raises(ApiError) as error:
+        _write(case, request, case.owner_id, key)
+    assert error.value.code == "business_date_closed"
+    with case.engine.connect() as verifier:
+        _connected_target(verifier, case.url)
+        assert verifier.scalar(select(SaleAttempt.state).where(SaleAttempt.id == attempt.id)) == "Reserved"
+        assert verifier.scalar(select(func.count()).select_from(SaleIdempotency).where(
+            SaleIdempotency.user_id == case.owner_id)) == 0
+    _calendar_change(case, day, "Open", 1)
+    sale, replay = _write(case, request, case.owner_id, key)
+    assert not replay and sale.business_date == day
+    again, replay = _write(case, request, case.owner_id, key)
+    assert replay and again.id == sale.id
+
+
+def test_direct_manila_midnight_rolls_back_on_real_postgres(case):
+    request, key = case.direct(), uuid4()
+    day = _business_date(case, request)
+    before = datetime.combine(day, clock_time(23, 59, 59), ZoneInfo("Asia/Manila")).astimezone(timezone.utc)
+    clock = iter((before - timedelta(minutes=1), before, before + timedelta(seconds=1)))
+    with patch("app.modules.transactions.service._database_time", side_effect=lambda _session: next(clock)):
+        with pytest.raises(ApiError) as error:
+            _legacy_write(case, request, key)
+    assert (error.value.status_code, error.value.code) == (503, "sale_outcome_uncertain")
+    with case.engine.connect() as verifier:
+        _connected_target(verifier, case.url)
+        assert verifier.scalar(select(func.count()).select_from(SaleIdempotency).where(
+            SaleIdempotency.user_id == case.owner_id)) == 0
+        assert verifier.scalar(select(func.count()).select_from(Transaction).where(
+            Transaction.recorded_by_user_id == case.owner_id)) == 0
+
+
+@pytest.mark.parametrize("source", ["Direct", "Manual"])
+def test_sale_date_lock_timeout_rolls_back_claim_then_same_key_retries(case, source):
+    request = case.direct() if source == "Direct" else case.manual()
+    day, key = _business_date(case, request), uuid4()
+    with Session(case.engine, autoflush=False, expire_on_commit=False) as holder:
+        with holder.begin():
+            lock_operating_date(holder, day)
+            with pytest.raises(ApiError) as error:
+                _legacy_write(case, request, key)
+            assert (error.value.status_code, error.value.code) == (503, "sale_outcome_uncertain")
+            with case.engine.connect() as verifier:
+                _connected_target(verifier, case.url)
+                assert verifier.scalar(select(func.count()).select_from(SaleIdempotency).where(
+                    SaleIdempotency.user_id == case.owner_id)) == 0
+                assert verifier.scalar(select(func.count()).select_from(Transaction).where(
+                    Transaction.recorded_by_user_id == case.owner_id)) == 0
+    sale, replay = _legacy_write(case, request, key)
+    assert not replay and sale.business_date == day

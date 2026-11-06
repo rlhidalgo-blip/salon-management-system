@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import ApiError
 from app.modules.audit.models import AuditEvent
 from app.modules.catalog.models import Product, Service
+from app.modules.operating_days.date_lock import lock_operating_date, require_sale_date_not_closed
 from app.modules.staff.models import Staff
 from app.modules.transactions.calculations import calculate_item
 from app.modules.transactions.attempt_write_guard import (
@@ -147,6 +148,14 @@ def record_manual_sale(session: Session, payload: ManualSaleCreate, *, actor_use
         if replay is not None:
             return replay, True
         raise ApiError(409, "idempotency_conflict", "Idempotency key could not be resolved") from None
+
+    # The occurrence date is fixed for Manual sales. Hold the shared calendar
+    # lock through the outer commit and recheck Cashier access after its wait.
+    lock_operating_date(session, business_date, for_sale=True)
+    require_sale_date_not_closed(session, business_date)
+    after_calendar_wait = _database_time(session)
+    if role == "Cashier" and business_date != after_calendar_wait.astimezone(MANILA).date():
+        raise ApiError(403, "forbidden", "Previous-day manual entry requires Owner access")
 
     try:
         with session.begin_nested():
