@@ -63,7 +63,8 @@ def _preflight(connection, url):
     revision = connection.scalar(text("SELECT version_num FROM public.alembic_version"))
     exists = connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is not None
     if (connection.scalar(text("SELECT count(*) FROM public.alembic_version")) != 1
-            or (revision, exists) not in (("20261020_01", False), ("20261027_01", True))):
+            or (revision, exists) not in (("20261020_01", False), ("20261027_01", True),
+                                          ("20261104_01", True))):
         raise RuntimeError("Unexpected Alembic revision or sale_attempts state")
     return exists
 

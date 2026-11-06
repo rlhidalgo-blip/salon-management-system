@@ -16,6 +16,7 @@ MODEL_MODULES: tuple[str, ...] = (
     "app.modules.audit.models",
     "app.modules.transactions.idempotency_models",
     "app.modules.transactions.attempt_models",
+    "app.modules.operating_days.models",
 )
 
 

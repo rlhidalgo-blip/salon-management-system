@@ -32,10 +32,10 @@ def isolated_switch(monkeypatch):
 
 
 def fake_database(monkeypatch, *, actual="salon_production", schema="public", count=1,
-                  revision="20261027_01", table="sale_attempts"):
+                  revision="20261104_01", table="sale_attempts", calendar="operating_days"):
     engine = MagicMock()
     connection = engine.connect.return_value.__enter__.return_value
-    connection.scalar.side_effect = [actual, schema, count, revision, table]
+    connection.scalar.side_effect = [actual, schema, count, revision, table, calendar]
     monkeypatch.setattr(startup, "get_engine", lambda: engine)
     return engine
 
@@ -73,15 +73,22 @@ def test_production_rejects_unapproved_configured_target(monkeypatch, name, valu
 
 
 @pytest.mark.parametrize("actual,schema,count,revision,table", [
-    ("wrong_database", "public", 1, "20261027_01", "sale_attempts"),
-    ("salon_production", "other", 1, "20261027_01", "sale_attempts"),
-    ("salon_production", "public", 2, "20261027_01", "sale_attempts"),
+    ("wrong_database", "public", 1, "20261104_01", "sale_attempts"),
+    ("salon_production", "other", 1, "20261104_01", "sale_attempts"),
+    ("salon_production", "public", 2, "20261104_01", "sale_attempts"),
     ("salon_production", "public", 1, "20261020_01", None),
-    ("salon_production", "public", 1, "20261027_01", None),
+    ("salon_production", "public", 1, "20261104_01", None),
+    ("salon_production", "public", 1, "20261027_01", "sale_attempts"),
 ])
 def test_production_rejects_connected_target_or_schema(monkeypatch, actual, schema, count, revision, table):
     fake_database(monkeypatch, actual=actual, schema=schema, count=count, revision=revision, table=table)
     with pytest.raises(RuntimeError, match="database|migration"):
+        startup.validate_startup_configuration()
+
+
+def test_production_rejects_missing_operating_calendar(monkeypatch):
+    fake_database(monkeypatch, calendar=None)
+    with pytest.raises(RuntimeError, match="migration"):
         startup.validate_startup_configuration()
 
 

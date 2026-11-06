@@ -50,7 +50,8 @@ def db_api(monkeypatch):
                 pytest.fail("Alembic revision absent; no writes attempted")
             revision = connection.scalar(text("SELECT version_num FROM public.alembic_version"))
             has_attempts = connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is not None
-            if (revision, has_attempts) not in (("20261020_01", False), ("20261027_01", True)):
+            if (revision, has_attempts) not in (("20261020_01", False), ("20261027_01", True),
+                                                ("20261104_01", True)):
                 pytest.fail("Unexpected Alembic revision; no writes attempted")
             baseline = {model: connection.scalar(select(func.count()).select_from(model)) for model in MODELS}
             baseline_rule_id = connection.scalar(select(CommissionRule.id).order_by(CommissionRule.id).limit(1))

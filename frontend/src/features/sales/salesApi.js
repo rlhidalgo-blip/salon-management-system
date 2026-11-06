@@ -1,9 +1,10 @@
 const BASE = '/api/v1'
 
 export class SalesApiError extends Error {
-  constructor(status = 0) {
+  constructor(status = 0, code = null) {
     super('Sales request failed')
     this.status = status
+    this.code = code
   }
 }
 
@@ -14,7 +15,14 @@ async function request(path, options = {}) {
   } catch {
     throw new SalesApiError()
   }
-  if (!response.ok) throw new SalesApiError(response.status)
+  if (!response.ok) {
+    let code = null
+    try {
+      const body = await response.json()
+      if (typeof body?.error?.code === 'string') code = body.error.code
+    } catch { /* Preserve the HTTP status when the error body is unavailable. */ }
+    throw new SalesApiError(response.status, code)
+  }
   try {
     return await response.json()
   } catch {

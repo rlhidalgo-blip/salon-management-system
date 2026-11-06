@@ -39,7 +39,8 @@ def preflight(connection, url):
         raise RuntimeError("Unsafe connected target or revision")
     revision = connection.scalar(text("SELECT version_num FROM public.alembic_version"))
     exists = connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is not None
-    if (revision, exists) not in (("20261020_01", False), ("20261027_01", True)):
+    if (revision, exists) not in (("20261020_01", False), ("20261027_01", True),
+                                  ("20261104_01", True)):
         raise RuntimeError("Unexpected schema revision or sale_attempts state")
     return exists
 

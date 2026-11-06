@@ -17,7 +17,8 @@ from app.db.model_registry import get_model_metadata
 
 TABLES = get_model_metadata().tables
 TEST_DATABASE = "yabs_salon_test"
-ALLOWED_SCHEMAS = (("20261020_01", False), ("20261027_01", True))
+ALLOWED_SCHEMAS = (("20261020_01", False), ("20261027_01", True),
+                   ("20261104_01", True))
 
 
 class DatabaseCase:

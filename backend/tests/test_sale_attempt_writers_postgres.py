@@ -1,19 +1,14 @@
-"""Opt-in B2 writer checks: temporary migration and all synthetic rows roll back."""
+"""Opt-in reservation-aware writer checks; all synthetic rows roll back."""
 
 import os
 from datetime import timedelta
 from decimal import Decimal
 from ipaddress import ip_address
-from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
 import sqlalchemy as sa
-from alembic.config import Config
-from alembic.operations import Operations
-from alembic.runtime.migration import MigrationContext
-from alembic.script import ScriptDirectory
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
@@ -31,9 +26,6 @@ from app.modules.transactions.schemas import ManualSaleCreate, SaleCreate
 from app.modules.transactions.service import record_direct_sale
 
 
-REVISION = ScriptDirectory.from_config(Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))).get_revision("20261027_01").module
-
-
 def _preflight(connection, url):
     if (url.drivername != "postgresql+psycopg" or url.database != "yabs_salon_test"
             or url.host not in ("localhost", "127.0.0.1", "::1") or url.username != "yabs_app"):
@@ -47,9 +39,9 @@ def _preflight(connection, url):
         raise RuntimeError("Unsafe connected target or revision")
     revision = connection.scalar(text("SELECT version_num FROM public.alembic_version"))
     exists = connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is not None
-    if (revision, exists) not in (("20261020_01", False), ("20261027_01", True)):
-        raise RuntimeError("Unexpected schema revision or sale_attempts state")
-    return exists
+    calendar_exists = connection.scalar(text("SELECT to_regclass('public.operating_days')")) is not None
+    if (revision, exists, calendar_exists) != ("20261104_01", True, True):
+        raise RuntimeError("Unexpected schema revision or sale/calendar table state")
 
 
 def _direct(service_id, staff_id, price="101.00"):
@@ -79,7 +71,7 @@ def test_reservation_aware_direct_and_manual_writes_are_atomic():
     engine = sa.create_engine(url, connect_args={"connect_timeout": 5})
     try:
         with engine.connect() as connection:
-            migrated = _preflight(connection, url)
+            _preflight(connection, url)
             get_model_metadata()
             before = tuple(connection.scalar(text(f"SELECT count(*) FROM {name}")) for name in (
                 "transactions", "transaction_items", "sale_idempotency", "audit_events"))
@@ -87,9 +79,6 @@ def test_reservation_aware_direct_and_manual_writes_are_atomic():
             try:
                 connection.execute(text("SET LOCAL lock_timeout = '3s'"))
                 connection.execute(text("SET LOCAL statement_timeout = '15s'"))
-                if not migrated:
-                    with Operations.context(MigrationContext.configure(connection)):
-                        REVISION.upgrade()
                 marker = "synthetic-b2-" + uuid4().hex
                 user_id = connection.scalar(text(
                     "INSERT INTO users (username,password_hash,role) VALUES (:name,'synthetic-unused','Owner') RETURNING id"

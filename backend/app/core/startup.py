@@ -9,7 +9,7 @@ from app.db.session import get_engine
 from app.modules.transactions.attempt_feature import attempt_protocol_enabled
 
 
-EXPECTED_REVISION = "20261027_01"
+EXPECTED_REVISION = "20261104_01"
 
 
 def validate_startup_configuration() -> None:
@@ -46,9 +46,11 @@ def validate_startup_configuration() -> None:
             revision_count = connection.scalar(text("SELECT count(*) FROM public.alembic_version"))
             revision = connection.scalar(text("SELECT version_num FROM public.alembic_version"))
             attempts_table = connection.scalar(text("SELECT to_regclass('public.sale_attempts')"))
+            calendar_table = connection.scalar(text("SELECT to_regclass('public.operating_days')"))
     except Exception:
         raise RuntimeError("Database startup verification failed") from None
     if actual_name != url.database or (production and actual_name != expected_name):
         raise RuntimeError("Connected database identity does not match configuration")
-    if schema != "public" or revision_count != 1 or revision != EXPECTED_REVISION or attempts_table is None:
+    if (schema != "public" or revision_count != 1 or revision != EXPECTED_REVISION
+            or attempts_table is None or calendar_table is None):
         raise RuntimeError("Database migration is incompatible with this application")

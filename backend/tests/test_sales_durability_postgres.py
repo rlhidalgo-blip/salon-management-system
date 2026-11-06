@@ -35,7 +35,7 @@ from app.modules.users.models import User
 
 
 ORIGIN = "http://localhost"
-REVISION = "20261020_01"
+REVISION = "20261104_01"
 PREFIX = "synthetic-durable-sale-"
 
 
@@ -56,7 +56,8 @@ def _target_is_safe(connection, url) -> None:
     if connection.scalar(text("SELECT to_regclass('public.alembic_version')")) is None:
         raise RuntimeError("Missing Alembic revision table")
     if (connection.scalar(text("SELECT count(*) FROM public.alembic_version")) != 1
-            or connection.scalar(text("SELECT version_num FROM public.alembic_version")) != REVISION):
+            or connection.scalar(text("SELECT version_num FROM public.alembic_version")) != REVISION
+            or connection.scalar(text("SELECT to_regclass('public.operating_days')")) is None):
         raise RuntimeError("Unexpected Alembic revision")
 
 
@@ -308,12 +309,14 @@ def test_two_connections_same_key_create_one_sale(durable_case: Case, monkeypatc
     pids = set()
     guard = threading.Lock()
 
-    def coordinated(session, payload, *, actor_user_id, idempotency_key):
+    def coordinated(session, payload, *, actor_user_id, idempotency_key,
+                    enforce_reservation=False):
         pid = session.scalar(text("SELECT pg_backend_pid()"))
         with guard:
             pids.add(pid)
         gate.wait(timeout=10)
-        return original(session, payload, actor_user_id=actor_user_id, idempotency_key=idempotency_key)
+        return original(session, payload, actor_user_id=actor_user_id,
+                        idempotency_key=idempotency_key, enforce_reservation=enforce_reservation)
 
     monkeypatch.setattr(sale_router, "record_direct_sale", coordinated)
     key = str(uuid4())

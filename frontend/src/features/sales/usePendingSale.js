@@ -237,7 +237,9 @@ export function usePendingSale(user, onRevalidateSession) {
         try { await onRevalidateSession() } catch { /* Preserve pending key. */ }
       }
       setStatus('unresolved')
-      setError(failure.status === 403 ? 'Permission denied. The sale outcome is unresolved; contact the Owner.'
+      setError(failure.status === 409 && failure.code === 'business_date_closed'
+        ? 'This business date is marked Closed. Keep this pending sale identifier, check its status, and contact the Owner before retrying the exact sale.'
+        : failure.status === 403 ? 'Permission denied. The sale outcome is unresolved; contact the Owner.'
         : failure.status === 409 ? 'Idempotency conflict or changed sale data. Keep this key and contact the Owner.'
           : failure.status === 422 ? 'Sale was rejected. Keep this key and check its status before further action.'
             : 'Sale outcome is uncertain. Check status or retry this exact sale with the same key.')

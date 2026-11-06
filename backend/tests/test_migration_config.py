@@ -16,10 +16,11 @@ def test_alembic_paths_and_additive_revision_chain() -> None:
 
     assert Path(script.dir) == BACKEND_ROOT / "migrations"
     assert Path(script.versions) == BACKEND_ROOT / "migrations" / "versions"
-    assert script.get_heads() == ["20261027_01"]
+    assert script.get_heads() == ["20261104_01"]
     revision = script.get_revision("20261020_01")
     assert revision.down_revision is None
     assert script.get_revision("20261027_01").down_revision == "20261020_01"
+    assert script.get_revision("20261104_01").down_revision == "20261027_01"
     assert config.get_main_option("sqlalchemy.url") is None
 
 
@@ -37,4 +38,5 @@ def test_model_registry_uses_shared_metadata_with_all_approved_models() -> None:
         "audit_events",
         "sale_idempotency",
         "sale_attempts",
+        "operating_days",
     }

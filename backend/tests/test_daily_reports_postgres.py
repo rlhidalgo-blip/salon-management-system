@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 from app.core.config import get_database_url
 from app.modules.catalog.models import Service
 from app.modules.commissions.models import CommissionRule
-from app.modules.reports.service import daily_report, monthly_report
+from app.modules.operating_days.models import OperatingDay
+from app.modules.reports.service import daily_report, monthly_report, weekday_sales_report
 from app.modules.staff.models import Staff
 from app.modules.transactions.models import Transaction, TransactionItem
 from app.modules.users.models import User
@@ -40,8 +41,9 @@ def _safe_target(connection, url):
     if connection.scalar(text("SELECT to_regclass('public.alembic_version')")) is None:
         pytest.fail("Missing Alembic revision; no writes attempted")
     revision = connection.scalar(text("SELECT version_num FROM public.alembic_version"))
-    has_attempts = connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is not None
-    if (revision, has_attempts) not in (("20261020_01", False), ("20261027_01", True)):
+    if (revision != "20261104_01"
+            or connection.scalar(text("SELECT to_regclass('public.sale_attempts')")) is None
+            or connection.scalar(text("SELECT to_regclass('public.operating_days')")) is None):
         pytest.fail("Unexpected Alembic revision; no writes attempted")
 
 
@@ -60,6 +62,7 @@ def db_case():
         with engine.connect() as connection:
             _safe_target(connection, url)
             baseline = {model: connection.scalar(select(func.count()).select_from(model)) for model in MODELS}
+            calendar_baseline = connection.scalar(select(func.count()).select_from(OperatingDay))
             connection.rollback()
             outer = connection.begin()
             try:
@@ -101,6 +104,7 @@ def db_case():
             _safe_target(verifier, url)
             for model in MODELS:
                 assert verifier.scalar(select(func.count()).select_from(model)) == baseline[model]
+            assert verifier.scalar(select(func.count()).select_from(OperatingDay)) == calendar_baseline
             assert verifier.scalar(select(func.count()).select_from(User).where(
                 User.username == marker)) == 0
     finally:
@@ -169,3 +173,35 @@ def test_postgres_monthly_snapshots_attribution_and_original_month_void(db_case)
     assert after.completed_transaction_count == 0
     assert after.voided_transaction_count == 2
     assert after.staff_performance == []
+
+
+def test_postgres_weekday_open_zero_day_void_exclusion_and_report_reconciliation(db_case):
+    session, business_date, completed_id = db_case
+    zero_sales_day = business_date - timedelta(days=1)
+    with session.begin():
+        actor_id = session.scalar(select(Transaction.recorded_by_user_id).where(
+            Transaction.id == completed_id))
+        assert session.scalar(select(OperatingDay.business_date).where(
+            OperatingDay.business_date.in_((zero_sales_day, business_date)))) is None
+        for day in (zero_sales_day, business_date):
+            session.add(OperatingDay(
+                business_date=day, status="Open", created_by_user_id=actor_id,
+                updated_by_user_id=actor_id, version=1,
+            ))
+        session.flush()
+        weekday = weekday_sales_report(session, start=zero_sales_day, through=business_date)
+        maximum_span = weekday_sales_report(
+            session, start=business_date - timedelta(days=365), through=business_date)
+        daily = daily_report(session, role="Owner", business_date=business_date)
+        monthly = monthly_report(session, month=business_date.strftime("%Y-%m"))
+    assert sum(row.gross_sales for row in weekday.weekdays) == daily.gross_sales == monthly.gross_sales == Decimal("101.00")
+    assert sum(row.verified_open_gross_sales for row in weekday.weekdays) == Decimal("101.00")
+    assert weekday.coverage.verified_open_days == 2
+    assert maximum_span.coverage.historical_days == 366
+    assert len(maximum_span.weekdays) == 7
+    assert weekday.coverage.unverified_days == 0
+    assert weekday.coverage.incomplete_coverage is False
+    assert sum(row.verified_open_days for row in weekday.weekdays) == 2
+    assert sum(row.provisional_today_gross_sales for row in weekday.weekdays) == Decimal("0.00")
+    assert weekday.weekdays[zero_sales_day.weekday()].average_gross_per_verified_open_day == Decimal("0.00")
+    assert weekday.weekdays[business_date.weekday()].average_gross_per_verified_open_day == Decimal("101.00")
